@@ -117,7 +117,7 @@ pip install -r requirements.txt
 # 5. Create your .env file
 cp .env.example .env              # then open .env and fill in the values (see section 5)
 
-# 6. Create the database tables
+# 6. Apply the committed database migrations
 flask --app run db upgrade
 
 # 7. (Optional) load sample data
@@ -243,7 +243,7 @@ JWT (JSON Web Token) is a signed token the server gives you at login. The client
 - Never return password hashes in any response.
 
 ### 2-step signup (email token)
-After registering, the user receives an email with a verification link and cannot log in until the email is verified. The `User` model has an `is_verified` flag and creates and checks a signed, time-limited token. M2 builds the routes that send and verify it.
+This is planned for the registration slice. The current `User` model has an `is_verified` flag; signed token creation/verification and email delivery are not implemented yet. M2 owns those routes and the email integration.
 
 ---
 
@@ -267,9 +267,14 @@ After registering, the user receives an email with a verification link and canno
 | GET | `/api/campaigns` | Public, paginated | M3 |
 | GET | `/api/campaigns/<id>` | Public | M3 |
 | POST | `/api/campaigns` | Organizer | M3 |
-| POST | `/api/campaigns/<id>/pledges` | Contributor | M4 |
-| GET | `/api/pledges/mine` | Contributor | M4 |
-| PATCH | `/api/pledges/<id>` | Organizer (mark paid) | M4 |
+| POST | `/api/pledges/campaign/<id>` | Contributor | M4 |
+| GET | `/api/pledges/campaign/<id>` | Public, paginated | M4 |
+| GET | `/api/pledges/campaign/<id>/manage` | Campaign organizer or admin, paginated | M4 |
+| GET | `/api/pledges/mine` | Logged in, paginated | M4 |
+| GET | `/api/pledges/<id>` | Contributor, organizer or admin | M4 |
+| PATCH | `/api/pledges/<id>` | Pledge owner (edit pending pledge) | M4 |
+| DELETE | `/api/pledges/<id>` | Pledge owner or admin (cancel pending pledge) | M4 |
+| POST | `/api/pledges/<id>/confirm` | Campaign organizer or admin | M4 |
 | GET | `/api/admin/users` | Admin, paginated | M5 |
 
 ---

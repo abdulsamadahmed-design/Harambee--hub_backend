@@ -17,6 +17,11 @@ from app.schemas.pledge_schema import (
 )
 from app.utils.email import send_email
 
+try:
+    from app.utils.pagination import paginate
+except ImportError:
+    paginate = None
+
 pledge_bp = Blueprint("pledges", __name__, url_prefix="/api/pledges")
 
 
@@ -75,20 +80,56 @@ def _status_counts(campaign_id):
 
 
 def _page(query, page, per_page):
-    return db.paginate(
-        query.order_by(Pledge.created_at.desc()),
+    page = max(int(page or 1), 1)
+    per_page = min(max(int(per_page or 10), 1), 100)
+    ordered_query = query.order_by(Pledge.created_at.desc())
+
+    if paginate is not None:
+        # The shared helper currently accepts a Flask-SQLAlchemy Query.
+        if not hasattr(ordered_query, "paginate"):
+            statement = ordered_query
+            ordered_query = db.session.query(Pledge)
+            if statement.whereclause is not None:
+                ordered_query = ordered_query.filter(statement.whereclause)
+            ordered_query = ordered_query.order_by(Pledge.created_at.desc())
+        result = paginate(ordered_query, page=page, per_page=per_page)
+        if isinstance(result, dict):
+            return {
+                "items": result.get("items", []),
+                "page": result.get("page", page),
+                "per_page": result.get("per_page", per_page),
+                "total": result.get("total", 0),
+                "pages": result.get("pages", 0),
+            }
+        return {
+            "items": result.items,
+            "page": result.page,
+            "per_page": result.per_page,
+            "total": result.total,
+            "pages": result.pages,
+        }
+
+    pagination = db.paginate(
+        ordered_query,
         page=page,
         per_page=per_page,
         error_out=False,
     )
-
-
-def _pagination_data(pagination):
     return {
+        "items": pagination.items,
         "page": pagination.page,
         "per_page": pagination.per_page,
         "total": pagination.total,
         "pages": pagination.pages,
+    }
+
+
+def _pagination_data(pagination):
+    return {
+        "page": pagination["page"],
+        "per_page": pagination["per_page"],
+        "total": pagination["total"],
+        "pages": pagination["pages"],
     }
 
 
@@ -117,9 +158,9 @@ def list_campaign_pledges(campaign_id):
         {
             "campaign_id": campaign_id,
             "raised_amount": _raised_for(campaign_id),
-            "count": pagination.total,
+            "count": pagination["total"],
             **_pagination_data(pagination),
-            "pledges": [pledge.to_dict() for pledge in pagination.items],
+            "pledges": [pledge.to_dict() for pledge in pagination["items"]],
         }
     ), 200
 
@@ -166,10 +207,10 @@ def my_pledges():
     pagination = _page(query, query_data["page"], query_data["per_page"])
     return jsonify(
         {
-            "count": pagination.total,
+            "count": pagination["total"],
             **_pagination_data(pagination),
             "pledges": [
-                pledge.to_dict(viewer=g.user) for pledge in pagination.items
+                pledge.to_dict(viewer=g.user) for pledge in pagination["items"]
             ],
         }
     ), 200
@@ -278,7 +319,7 @@ def organizer_manage_view(campaign_id):
             "counts": _status_counts(campaign_id),
             **_pagination_data(pagination),
             "pledges": [
-                pledge.to_dict(viewer=g.user) for pledge in pagination.items
+                pledge.to_dict(viewer=g.user) for pledge in pagination["items"]
             ],
         }
     ), 200

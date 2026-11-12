@@ -15,8 +15,10 @@ def create_app():
 
     from app import models
     from app.routes.auth_routes import auth_bp
+    from app.routes.admin_routes import admin_bp
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(admin_bp)
     register_error_handlers(app)
 
     return app

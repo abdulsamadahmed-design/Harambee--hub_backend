@@ -10,6 +10,7 @@ class User(db.Model):
     phone = db.Column(db.String(20))
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20))
+    email_verified = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def set_password(self, password):

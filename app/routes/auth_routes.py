@@ -6,6 +6,8 @@ from app.utils.errors import error_response
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
+ALLOWED_ROLES = ("organizer", "contributor")
+
 
 @auth_bp.post("/register")
 def register():
@@ -13,19 +15,21 @@ def register():
     name = (data.get("name") or "").strip()
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
+    role = data.get("role")
 
     if not name or "@" not in email or len(password) < 6:
         return error_response("Name, a valid email and a password of 6+ characters are required")
+    if role not in ALLOWED_ROLES:
+        return error_response("Role must be organizer or contributor")
     if User.query.filter_by(email=email).first():
         return error_response("Email already registered", 409)
 
-    role = "admin" if User.query.count() == 0 else "user"
     user = User(name=name, email=email, phone=data.get("phone"), role=role)
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
 
-    token = create_access_token(identity=str(user.id))
+    token = create_access_token(identity=str(user.id), additional_claims={"role": user.role})
     return jsonify({"token": token, "user": user.to_dict()}), 201
 
 
@@ -38,7 +42,7 @@ def login():
     if not user or not user.check_password(data.get("password") or ""):
         return error_response("Invalid email or password", 401)
 
-    token = create_access_token(identity=str(user.id))
+    token = create_access_token(identity=str(user.id), additional_claims={"role": user.role})
     return jsonify({"token": token, "user": user.to_dict()})
 
 

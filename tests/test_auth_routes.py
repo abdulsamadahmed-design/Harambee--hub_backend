@@ -16,7 +16,7 @@ def login(client, email=EMAIL, password=PASSWORD):
     return client.post("/api/auth/login", json={"email": email, "password": password})
 
 
-# ---------- login ----------
+
 
 
 def test_login_success_returns_token_and_user(client, make_user):
@@ -74,7 +74,7 @@ def test_login_with_an_empty_body_is_rejected(client):
     assert "error" in response.get_json()
 
 
-# ---------- me ----------
+
 
 
 def test_me_returns_the_logged_in_user(client, make_user, auth_header):
@@ -92,7 +92,7 @@ def test_me_without_a_token_returns_401_json(client):
     assert "error" in response.get_json()
 
 
-# ---------- change password ----------
+
 
 
 def test_change_password_success_then_login_with_new_password(client, make_user, auth_header):
@@ -135,7 +135,7 @@ def test_change_password_requires_a_token(client):
     assert response.status_code == 401
 
 
-# ---------- global error handling ----------
+
 
 
 def test_unknown_url_returns_a_json_404(client):

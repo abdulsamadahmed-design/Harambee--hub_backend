@@ -11,4 +11,7 @@ venv/
 .env
 instance/
 __pycache__/
+<<<<<<< HEAD
 .venv/
+=======
+>>>>>>> origin/develop

@@ -1,21 +1,15 @@
-"""Shared pytest setup for the whole test suite.
-
-The environment variables below are set BEFORE the app is imported, because
-app/config.py reads them when it is first imported. They are forced (not "set
-if missing") so tests can never touch a real database or real secrets.
-"""
 import os
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret-key-0123456789-abcdefghijklmnop"
 os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-0123456789-abcdefghij"
 
-import pytest  # noqa: E402
-from flask_jwt_extended import create_access_token  # noqa: E402
+import pytest  #E402
+from flask_jwt_extended import create_access_token  # E402
 
-from app import create_app  # noqa: E402
-from app.extensions import db  # noqa: E402
-from app.models.user import User  # noqa: E402
+from app import create_app #E402
+from app.extensions import db  # E402
+from app.models.user import User  # E402
 
 
 @pytest.fixture()
@@ -24,7 +18,8 @@ def app():
     app = create_app()
     app.config.update(TESTING=True)
     with app.app_context():
-        # Tests build tables directly. The real database uses migrations.
+    
+
         db.create_all()
         yield app
         db.session.remove()

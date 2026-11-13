@@ -3,7 +3,9 @@ from datetime import datetime, timezone
 import pytest
 from flask_jwt_extended import create_access_token
 
+from app import create_app
 from app.extensions import db
+from app.routes.pledge_routes import pledge_bp
 from app.models.user import User
 
 try:
@@ -13,6 +15,24 @@ try:
 except ImportError:
     Campaign = None
     CAMPAIGN_AVAILABLE = False
+
+
+@pytest.fixture()
+def app():
+    application = create_app()
+    application.config.update(TESTING=True)
+    with application.app_context():
+        db.create_all()
+        if "pledges" not in application.blueprints:
+            application.register_blueprint(pledge_bp)
+        yield application
+        db.session.remove()
+        db.drop_all()
+
+
+@pytest.fixture()
+def client(app):
+    return app.test_client()
 
 
 def _make_user(app, email, role="contributor"):

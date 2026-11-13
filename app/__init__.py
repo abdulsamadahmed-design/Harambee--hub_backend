@@ -15,10 +15,12 @@ def create_app():
 
     from app import models
     from app.routes.auth_routes import auth_bp
+    from app.routes.pledge_routes import pledge_bp
     from app.routes.admin_routes import admin_bp
     from app.routes.campaign_routes import campaign_bp
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(pledge_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(campaign_bp)
 

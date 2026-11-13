@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 import pytest
 from flask_jwt_extended import create_access_token
 
-from app import create_app
 from app.extensions import db
 from app.models.user import User
 
@@ -14,27 +13,6 @@ try:
 except ImportError:
     Campaign = None
     CAMPAIGN_AVAILABLE = False
-
-
-@pytest.fixture()
-def app():
-    application = create_app(
-        {
-            "TESTING": True,
-            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
-            "JWT_SECRET_KEY": "test-secret-key-with-at-least-32-bytes",
-        }
-    )
-    with application.app_context():
-        db.create_all()
-        yield application
-        db.session.remove()
-        db.drop_all()
-
-
-@pytest.fixture()
-def client(app):
-    return app.test_client()
 
 
 def _make_user(app, email, role="contributor"):
@@ -51,11 +29,10 @@ def _make_campaign(app, organizer_id, status="open"):
         campaign = Campaign(
             title="Test Wedding",
             description="Test campaign",
-            category="wedding",
-            target_amount=100000,
+            goal_amount=100000,
             status=status,
             organizer_id=organizer_id,
-            deadline=datetime.now(timezone.utc),
+            end_date=datetime.now(timezone.utc),
         )
         db.session.add(campaign)
         db.session.commit()

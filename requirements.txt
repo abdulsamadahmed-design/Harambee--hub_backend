@@ -23,3 +23,4 @@ python-dotenv==1.2.4
 SQLAlchemy==2.1.8
 typing_extensions==4.16.0
 Werkzeug==3.1.9
+cloudinary

@@ -11,3 +11,4 @@ venv/
 .env
 instance/
 __pycache__/
+.venv/

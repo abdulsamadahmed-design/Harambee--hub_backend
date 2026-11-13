@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # Throwaway values for CI only. Never put real secrets in this file.
+      SECRET_KEY: ci-secret-key-0123456789-abcdefghijklmnop
+      JWT_SECRET_KEY: ci-jwt-secret-key-0123456789-abcdefghijk
+      DATABASE_URL: "sqlite:///:memory:"
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Use the same version you run locally. Change this line if the
+          # action cannot find it.
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests with a 60% coverage minimum
+        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=60
+
+  deploy:
+    # Runs only after the tests pass, and only for pushes to main
+    # (that is, after the Scrum master merges develop into main).
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the deploy hook
+        env:
+          DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$DEPLOY_HOOK_URL" ]; then
+            echo "DEPLOY_HOOK_URL is not set, skipping deploy."
+            exit 0
+          fi
+          curl -fsS -X POST "$DEPLOY_HOOK_URL"

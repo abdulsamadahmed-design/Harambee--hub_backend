@@ -7,7 +7,6 @@ from marshmallow import ValidationError
 from sqlalchemy import func
 
 from app.extensions import db
-from app.models.campaign import Campaign
 from app.models.pledge import Pledge
 from app.models.user import User
 from app.schemas.pledge_schema import (
@@ -15,7 +14,16 @@ from app.schemas.pledge_schema import (
     pledge_query_schema,
     pledge_update_schema,
 )
-from app.utils.email import send_email
+
+try:
+    from app.models.campaign import Campaign
+except ImportError:
+    Campaign = None
+
+try:
+    from app.utils.email import send_email
+except ImportError:
+    send_email = None
 
 try:
     from app.utils.pagination import paginate
@@ -136,6 +144,8 @@ def _pagination_data(pagination):
 @pledge_bp.get("/campaign/<int:campaign_id>")
 def list_campaign_pledges(campaign_id):
     """Public campaign pledge list, with anonymous contributor identity hidden."""
+    if Campaign is None:
+        return _error("Campaign module not available yet", 503)
     if _get_campaign(campaign_id) is None:
         return _error("Campaign not found", 404)
 
@@ -168,6 +178,8 @@ def list_campaign_pledges(campaign_id):
 @pledge_bp.post("/campaign/<int:campaign_id>")
 @_require_user
 def create_pledge(campaign_id):
+    if Campaign is None:
+        return _error("Campaign module not available yet", 503)
     campaign = _get_campaign(campaign_id)
     if campaign is None:
         return _error("Campaign not found", 404)
@@ -272,10 +284,12 @@ def confirm_pledge(pledge_id):
     pledge = db.session.get(Pledge, pledge_id)
     if pledge is None:
         return _error("Pledge not found", 404)
+    if Campaign is None:
+        return _error("Campaign module not available yet", 503)
 
+    campaign = getattr(pledge, "campaign", None)
     is_organizer = (
-        pledge.campaign is not None
-        and pledge.campaign.organizer_id == g.user.id
+        campaign is not None and campaign.organizer_id == g.user.id
     )
     if not (is_organizer or g.user.role == "admin"):
         return _error("Forbidden", 403)
@@ -297,6 +311,8 @@ def confirm_pledge(pledge_id):
 @pledge_bp.get("/campaign/<int:campaign_id>/manage")
 @_require_user
 def organizer_manage_view(campaign_id):
+    if Campaign is None:
+        return _error("Campaign module not available yet", 503)
     campaign = _get_campaign(campaign_id)
     if campaign is None:
         return _error("Campaign not found", 404)
@@ -328,10 +344,15 @@ def organizer_manage_view(campaign_id):
 @pledge_bp.post("/<int:pledge_id>/remind")
 @_require_user
 def remind_pledge(pledge_id):
+    if send_email is None:
+        return _error("Email service not available yet", 503)
+    if Campaign is None:
+        return _error("Campaign module not available yet", 503)
     pledge = db.session.get(Pledge, pledge_id)
     if pledge is None:
         return _error("Pledge not found", 404)
-    if pledge.campaign is None or pledge.campaign.organizer_id != g.user.id:
+    campaign = getattr(pledge, "campaign", None)
+    if campaign is None or campaign.organizer_id != g.user.id:
         return _error("Forbidden", 403)
     if pledge.contributor is None or not getattr(pledge.contributor, "email", None):
         return _error("Contributor email not available", 400)
@@ -340,18 +361,18 @@ def remind_pledge(pledge_id):
     body = (
         f"Hi {getattr(pledge.contributor, 'name', None) or pledge.contributor.email}, "
         f"this is a reminder about your pledge of {float(pledge.amount)} "
-        f"to '{pledge.campaign.title}'."
+        f"to '{campaign.title}'."
     )
     send_email(pledge.contributor.email, subject, body)
     return jsonify({"message": "Reminder queued"}), 200
 
 
 def _can_view(pledge, user):
+    campaign = getattr(pledge, "campaign", None)
     return (
         user.role == "admin"
         or pledge.contributor_id == user.id
         or (
-            pledge.campaign is not None
-            and pledge.campaign.organizer_id == user.id
+            campaign is not None and campaign.organizer_id == user.id
         )
     )

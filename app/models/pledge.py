@@ -8,10 +8,10 @@ class Pledge(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     campaign_id = db.Column(
-        db.Integer, db.ForeignKey("campaigns.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("campaign.id"), nullable=False, index=True
     )
     contributor_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=True, index=True
+        db.Integer, db.ForeignKey("user.id"), nullable=True, index=True
     )
     amount = db.Column(db.Numeric(12, 2), nullable=False)
     message = db.Column(db.String(500), nullable=True)
@@ -26,8 +26,10 @@ class Pledge(db.Model):
     )
     confirmed_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
-    campaign = db.relationship("Campaign", back_populates="pledges")
-    contributor = db.relationship("User", back_populates="pledges")
+    campaign = db.relationship(
+        "Campaign", backref=db.backref("pledges", lazy="dynamic")
+    )
+    contributor = db.relationship("User")
 
     VALID_STATUSES = ("pending", "confirmed", "cancelled")
 
@@ -63,10 +65,8 @@ class Pledge(db.Model):
             return True
         if self.contributor_id is not None and viewer.id == self.contributor_id:
             return True
-        return (
-            self.campaign is not None
-            and self.campaign.organizer_id == viewer.id
-        )
+        campaign = getattr(self, "campaign", None)
+        return campaign is not None and campaign.organizer_id == viewer.id
 
     def __repr__(self):
         return f"<Pledge {self.id} campaign={self.campaign_id} status={self.status}>"

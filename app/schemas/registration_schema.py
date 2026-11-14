@@ -5,7 +5,10 @@ from marshmallow import Schema, fields, validate
 class RegistrationSchema(Schema):
     name = fields.String(
         required=True,
-        validate=validate.Length(min=1, max=100)
+        validate=[
+            validate.Length(min=1, max=100),
+            validate.Regexp(r".*\S.*", error="Name cannot be empty.")
+        ]
     )
 
     email = fields.Email(
@@ -21,7 +24,8 @@ class RegistrationSchema(Schema):
 
     phone = fields.String(
         required=False,
-        allow_none=True
+        allow_none=True,
+        validate=validate.Length(max=20)
     )
 
     role = fields.String(

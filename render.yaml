@@ -1,0 +1,17 @@
+# Render blueprint for the Harambee Hub API. See docs/deployment.md.
+services:
+  - type: web
+    name: harambee-hub-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    # Apply database migrations, then start the server.
+    startCommand: flask --app run db upgrade && gunicorn run:app
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false # paste the PostgreSQL connection string in the Render dashboard
+      - key: FRONTEND_URL
+        sync: false # the deployed frontend address, used for CORS

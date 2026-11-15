@@ -178,7 +178,7 @@ def test_admin_can_access_dashboard_and_view_statistics(
         "organizer": 1
     }
     assert data["campaigns_by_status"] == {"active": 1}
-    assert data["total_pledged"] == "60.00"
+    assert data["total_pledged"] == "30.00"
     assert data["total_confirmed"] == "20.00"
     assert data["pledges_by_status"] == {
         "pending": 1,

@@ -350,3 +350,30 @@ def test_pledge_can_be_created_for_api_created_campaign(
 
     assert pledge_response.status_code == 201
     assert pledge_response.get_json()["pledge"]["status"] == "pending"
+
+
+@pytest.mark.skipif(
+    not CAMPAIGN_AVAILABLE, reason="campaign.py not available"
+)
+def test_pledge_lists_reject_invalid_page(client, app):
+    organizer_id = _make_user(app, "organizer@example.com", "organizer")
+    contributor_id = _make_user(app, "contributor@example.com")
+    campaign_id = _make_campaign(app, organizer_id)
+
+    public_response = client.get(
+        f"/api/pledges/campaign/{campaign_id}?page=abc"
+    )
+
+    mine_response = client.get(
+        "/api/pledges/mine?page=abc",
+        headers=_headers(app, contributor_id),
+    )
+
+    manage_response = client.get(
+        f"/api/pledges/campaign/{campaign_id}/manage?page=abc",
+        headers=_headers(app, organizer_id),
+    )
+
+    assert public_response.status_code == 422
+    assert mine_response.status_code == 422
+    assert manage_response.status_code == 422

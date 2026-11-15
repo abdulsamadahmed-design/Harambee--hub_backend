@@ -34,7 +34,7 @@ def list_campaigns():
         return jsonify(result), 200
 
     except ValueError as error:
-        return error_response(str(error), 400)
+        return error_response(str(error), 422)
 
 
 @campaign_bp.get("/<int:campaign_id>")
@@ -86,7 +86,7 @@ def create_campaign():
         return jsonify({"errors": error.messages}), 400
 
     except ValueError as error:
-        return error_response(str(error), 400)
+        return error_response(str(error), 422)
 
     except (CloudinaryError, RuntimeError) as error:
         db.session.rollback()

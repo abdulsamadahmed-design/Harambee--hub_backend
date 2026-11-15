@@ -1,4 +1,7 @@
+cat > .gitignore << 'EOF'
 venv/
+.venv/
+.venv-*/
 __pycache__/
 *.pyc
 .env
@@ -7,3 +10,4 @@ instance/
 .pytest_cache/
 .coverage
 htmlcov/
+EOF

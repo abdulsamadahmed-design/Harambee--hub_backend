@@ -25,10 +25,7 @@ try:
 except ImportError:
     send_email = None
 
-try:
-    from app.utils.pagination import paginate
-except ImportError:
-    paginate = None
+from app.utils.pagination import paginate_query
 
 pledge_bp = Blueprint("pledges", __name__, url_prefix="/api/pledges")
 
@@ -87,49 +84,9 @@ def _status_counts(campaign_id):
     return counts
 
 
-def _page(query, page, per_page):
-    page = max(int(page or 1), 1)
-    per_page = min(max(int(per_page or 10), 1), 100)
+def _page(query):
     ordered_query = query.order_by(Pledge.created_at.desc())
-
-    if paginate is not None:
-        # The shared helper currently accepts a Flask-SQLAlchemy Query.
-        if not hasattr(ordered_query, "paginate"):
-            statement = ordered_query
-            ordered_query = db.session.query(Pledge)
-            if statement.whereclause is not None:
-                ordered_query = ordered_query.filter(statement.whereclause)
-            ordered_query = ordered_query.order_by(Pledge.created_at.desc())
-        result = paginate(ordered_query, page=page, per_page=per_page)
-        if isinstance(result, dict):
-            return {
-                "items": result.get("items", []),
-                "page": result.get("page", page),
-                "per_page": result.get("per_page", per_page),
-                "total": result.get("total", 0),
-                "pages": result.get("pages", 0),
-            }
-        return {
-            "items": result.items,
-            "page": result.page,
-            "per_page": result.per_page,
-            "total": result.total,
-            "pages": result.pages,
-        }
-
-    pagination = db.paginate(
-        ordered_query,
-        page=page,
-        per_page=per_page,
-        error_out=False,
-    )
-    return {
-        "items": pagination.items,
-        "page": pagination.page,
-        "per_page": pagination.per_page,
-        "total": pagination.total,
-        "pages": pagination.pages,
-    }
+    return paginate_query(ordered_query)
 
 
 def _pagination_data(pagination):
@@ -154,23 +111,23 @@ def list_campaign_pledges(campaign_id):
     except ValidationError as error:
         return _error("Invalid query", 422, error.messages)
 
-    query = db.select(Pledge).where(
+    query = Pledge.query.filter(
         Pledge.campaign_id == campaign_id,
         Pledge.status.in_(("pending", "confirmed")),
     )
     if query_data.get("status"):
         if query_data["status"] == "cancelled":
             return _error("Cancelled pledges are not public", 422)
-        query = query.where(Pledge.status == query_data["status"])
+        query = query.filter(Pledge.status == query_data["status"])
 
-    pagination = _page(query, query_data["page"], query_data["per_page"])
+    pagination = _page(query)
     return jsonify(
         {
             "campaign_id": campaign_id,
             "raised_amount": _raised_for(campaign_id),
             "count": pagination["total"],
             **_pagination_data(pagination),
-            "pledges": [pledge.to_dict() for pledge in pagination["items"]],
+            "items": [pledge.to_dict() for pledge in pagination["items"]],
         }
     ), 200
 
@@ -183,7 +140,7 @@ def create_pledge(campaign_id):
     campaign = _get_campaign(campaign_id)
     if campaign is None:
         return _error("Campaign not found", 404)
-    if campaign.status != "open":
+    if campaign.status != "active":
         return _error("Campaign is closed", 409)
     if g.user.role != "contributor":
         return _error("Only contributors can create pledges", 403)
@@ -213,15 +170,15 @@ def my_pledges():
     except ValidationError as error:
         return _error("Invalid query", 422, error.messages)
 
-    query = db.select(Pledge).where(Pledge.contributor_id == g.user.id)
+    query = Pledge.query.filter(Pledge.contributor_id == g.user.id)
     if query_data.get("status"):
-        query = query.where(Pledge.status == query_data["status"])
-    pagination = _page(query, query_data["page"], query_data["per_page"])
+        query = query.filter(Pledge.status == query_data["status"])
+    pagination = _page(query)
     return jsonify(
         {
             "count": pagination["total"],
             **_pagination_data(pagination),
-            "pledges": [
+            "items": [
                 pledge.to_dict(viewer=g.user) for pledge in pagination["items"]
             ],
         }
@@ -324,17 +281,17 @@ def organizer_manage_view(campaign_id):
     except ValidationError as error:
         return _error("Invalid query", 422, error.messages)
 
-    query = db.select(Pledge).where(Pledge.campaign_id == campaign_id)
+    query = Pledge.query.filter(Pledge.campaign_id == campaign_id)
     if query_data.get("status"):
-        query = query.where(Pledge.status == query_data["status"])
-    pagination = _page(query, query_data["page"], query_data["per_page"])
+        query = query.filter(Pledge.status == query_data["status"])
+    pagination = _page(query)
     return jsonify(
         {
             "campaign_id": campaign_id,
             "raised_amount": _raised_for(campaign_id),
             "counts": _status_counts(campaign_id),
             **_pagination_data(pagination),
-            "pledges": [
+            "items": [
                 pledge.to_dict(viewer=g.user) for pledge in pagination["items"]
             ],
         }
@@ -363,8 +320,10 @@ def remind_pledge(pledge_id):
         f"this is a reminder about your pledge of {float(pledge.amount)} "
         f"to '{campaign.title}'."
     )
-    send_email(pledge.contributor.email, subject, body)
-    return jsonify({"message": "Reminder queued"}), 200
+    if not send_email(pledge.contributor.email, subject, body):
+        return _error("Failed to send pledge reminder", 502)
+
+    return jsonify({"message": "Reminder sent"}), 200
 
 
 def _can_view(pledge, user):

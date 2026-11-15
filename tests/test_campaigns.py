@@ -62,6 +62,7 @@ def test_organizer_can_create_campaign(client, make_user, auth_header):
     assert response.status_code == 201
     assert response.json["title"] == "School Fundraiser"
     assert response.json["organizer_id"] == organizer.id
+    assert response.json["status"] == "active"
 
 
 def test_create_campaign_validation_error(client, make_user, auth_header):
@@ -98,3 +99,81 @@ def test_list_campaigns_returns_campaigns(app, client, make_user):
     assert response.status_code == 200
     assert response.json["total"] == 1
     assert response.json["items"][0]["title"] == "School Fundraiser"
+
+
+def test_create_campaign_returns_502_when_image_upload_fails(
+    client, make_user, auth_header, monkeypatch
+):
+    from io import BytesIO
+    from app.routes import campaign_routes
+
+    organizer = make_user(role="organizer")
+
+    def fail_upload(image_file):
+        raise RuntimeError("Cloudinary is unavailable")
+
+    monkeypatch.setattr(campaign_routes, "upload_image", fail_upload)
+
+    response = client.post(
+        "/api/campaigns/",
+        headers=auth_header(organizer),
+        data={
+            "title": "School Fundraiser",
+            "description": "Raising money to support students with school fees.",
+            "goal_amount": "50000.00",
+            "image": (BytesIO(b"fake image data"), "school.jpg"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 502
+    assert response.json["error"] == "Image upload failed. Please try again."
+    assert Campaign.query.count() == 0
+
+
+def test_client_cannot_set_campaign_image_url(client, make_user, auth_header):
+    organizer = make_user(role="organizer")
+
+    response = client.post(
+        "/api/campaigns/",
+        headers=auth_header(organizer),
+        json={
+            "title": "School Fundraiser",
+            "description": "Raising money to support students with school fees.",
+            "goal_amount": "50000.00",
+            "image_url": "https://example.com/fake.jpg"
+        }
+    )
+
+    assert response.status_code == 400
+    assert "image_url" in response.json["errors"]
+    assert Campaign.query.count() == 0
+
+
+def test_create_campaign_rejects_request_over_6mb(
+    client, make_user, auth_header
+):
+    from io import BytesIO
+
+    organizer = make_user(role="organizer")
+
+    response = client.post(
+        "/api/campaigns/",
+        headers=auth_header(organizer),
+        data={
+            "title": "School Fundraiser",
+            "description": "Raising money to support students with school fees.",
+            "goal_amount": "50000.00",
+            "image": (
+                BytesIO(b"\xff\xd8\xff" + b"x" * (6 * 1024 * 1024)),
+                "large.jpg",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 413
+    assert response.json["error"] == (
+        "Request is too large. Maximum size is 6 MB."
+    )
+    assert Campaign.query.count() == 0

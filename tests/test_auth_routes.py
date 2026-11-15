@@ -55,6 +55,21 @@ def test_login_wrong_password_returns_401(client, make_user):
     assert "error" in response.get_json()
 
 
+def test_unverified_user_cannot_login(client, make_user):
+    make_user(
+        email=EMAIL,
+        password=PASSWORD,
+        email_verified=False,
+    )
+
+    response = login(client)
+
+    assert response.status_code == 403
+    assert response.get_json()["error"] == (
+        "Please verify your email before logging in"
+    )
+
+
 def test_login_unknown_email_returns_401(client):
     assert login(client, email="nobody@example.com").status_code == 401
 
@@ -69,8 +84,7 @@ def test_login_gives_the_same_error_for_wrong_password_and_unknown_email(client,
 
 def test_login_with_an_empty_body_is_rejected(client):
     response = client.post("/api/auth/login", json={})
-    # 401 today. 422 once the route uses LoginSchema.
-    assert response.status_code in (401, 422)
+    assert response.status_code == 422
     assert "error" in response.get_json()
 
 
@@ -146,3 +160,25 @@ def test_unknown_url_returns_a_json_404(client):
 
 def test_wrong_method_is_rejected_with_405(client):
     assert client.get("/api/auth/login").status_code == 405
+
+
+def test_me_with_expired_token_returns_401_json(client, make_user, auth_header):
+    from datetime import timedelta
+
+    user = make_user(email=EMAIL)
+    headers = auth_header(user, expires_delta=timedelta(seconds=-1))
+
+    response = client.get("/api/auth/me", headers=headers)
+
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "Your access token has expired"
+
+
+def test_me_with_invalid_token_returns_401_json(client):
+    response = client.get(
+        "/api/auth/me",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "Invalid access token"

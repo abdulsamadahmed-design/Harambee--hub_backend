@@ -22,7 +22,7 @@ class CampaignSchema(Schema):
         validate=validate.Range(min=0.01)
     )
 
-    image_url = fields.Str(allow_none=True)
+    image_url = fields.Str(dump_only=True, allow_none=True)
 
     status = fields.Str(dump_only=True)
 

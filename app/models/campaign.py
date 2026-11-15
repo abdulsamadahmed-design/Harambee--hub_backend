@@ -1,5 +1,5 @@
 
-from datetime import datetime
+from datetime import datetime, timezone
 from app.extensions import db
 
 class Campaign(db.Model):
@@ -10,13 +10,13 @@ class Campaign(db.Model):
 
     goal_amount = db.Column(db.Numeric(12, 2), nullable=False)
 
-    image_url = db.Column(db.String(255), nullable=True)
+    image_url = db.Column(db.Text, nullable=True)
 
     status = db.Column(db.String(20), nullable=False, default="active")
 
     end_date = db.Column(db.DateTime, nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     organizer_id = db.Column(
         db.Integer,

@@ -85,6 +85,9 @@ def create_campaign():
     except ValidationError as error:
         return jsonify({"errors": error.messages}), 400
 
+    except ValueError as error:
+        return error_response(str(error), 400)
+
     except (CloudinaryError, RuntimeError) as error:
         db.session.rollback()
         print(f"Cloudinary upload error: {type(error).__name__}: {error}")

@@ -12,3 +12,4 @@ venv/
 instance/
 __pycache__/
 .venv/
+.venv-py38-backup/

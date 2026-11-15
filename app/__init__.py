@@ -88,6 +88,9 @@ def create_app():
 
         click.echo("Admin account created successfully.")
 
+    from app.cli import register_cli
+    register_cli(app)
+
     register_error_handlers(app)
 
     return app

@@ -11,27 +11,21 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    required_secrets = ("SECRET_KEY", "JWT_SECRET_KEY")
-    missing_secrets = [
-        key for key in required_secrets if not app.config.get(key)
-    ]
-    if missing_secrets:
-        raise RuntimeError(
-            "Missing required environment variables: "
-            + ", ".join(missing_secrets)
-        )
+    # Ensure required secrets are configured
+    for secret_name in ("SECRET_KEY", "JWT_SECRET_KEY"):
+        if not app.config.get(secret_name):
+            raise RuntimeError(f"{secret_name} must be configured.")
+
+    # Configure CORS for the frontend
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
     db.init_app(app)
     jwt.init_app(app)
-    frontend_url = os.getenv(
-        "FRONTEND_URL", "http://localhost:3000"
-    ).rstrip("/")
-
     cors.init_app(
         app,
         resources={
             r"/api/*": {
-                "origins": [frontend_url]
+                "origins": frontend_url.split(",")
             }
         }
     )
@@ -44,14 +38,14 @@ def create_app():
     from app.routes.pledge_routes import pledge_bp
     from app.routes.admin_routes import admin_bp
     from app.routes.campaign_routes import campaign_bp
-    from app.routes.health_routes import health_bp  
+    from app.routes.health_routes import health_bp
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(health_bp)
     app.register_blueprint(registration_bp)
     app.register_blueprint(pledge_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(campaign_bp)
-    app.register_blueprint(health_bp)
 
     @app.cli.command("seed-admin")
     def seed_admin():

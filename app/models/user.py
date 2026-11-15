@@ -26,4 +26,5 @@ class User(db.Model):
             "email": self.email,
             "phone": self.phone,
             "role": self.role,
+            "email_verified": self.email_verified,
         }

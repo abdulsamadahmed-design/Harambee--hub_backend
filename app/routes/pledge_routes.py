@@ -84,11 +84,6 @@ def _status_counts(campaign_id):
     return counts
 
 
-def _page(query):
-    ordered_query = query.order_by(Pledge.created_at.desc())
-    return paginate_query(ordered_query)
-
-
 def _pagination_data(pagination):
     return {
         "page": pagination["page"],
@@ -120,7 +115,7 @@ def list_campaign_pledges(campaign_id):
             return _error("Cancelled pledges are not public", 422)
         query = query.filter(Pledge.status == query_data["status"])
 
-    pagination = _page(query)
+    pagination = paginate_query(query.order_by(Pledge.created_at.desc()))
     return jsonify(
         {
             "campaign_id": campaign_id,
@@ -173,7 +168,7 @@ def my_pledges():
     query = Pledge.query.filter(Pledge.contributor_id == g.user.id)
     if query_data.get("status"):
         query = query.filter(Pledge.status == query_data["status"])
-    pagination = _page(query)
+    pagination = paginate_query(query.order_by(Pledge.created_at.desc()))
     return jsonify(
         {
             "count": pagination["total"],
@@ -284,7 +279,7 @@ def organizer_manage_view(campaign_id):
     query = Pledge.query.filter(Pledge.campaign_id == campaign_id)
     if query_data.get("status"):
         query = query.filter(Pledge.status == query_data["status"])
-    pagination = _page(query)
+    pagination = paginate_query(query.order_by(Pledge.created_at.desc()))
     return jsonify(
         {
             "campaign_id": campaign_id,

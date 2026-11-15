@@ -11,9 +11,24 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
+    # Ensure required secrets are configured
+    for secret_name in ("SECRET_KEY", "JWT_SECRET_KEY"):
+        if not app.config.get(secret_name):
+            raise RuntimeError(f"{secret_name} must be configured.")
+
+    # Configure CORS for the frontend
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
     db.init_app(app)
     jwt.init_app(app)
-    cors.init_app(app)
+    cors.init_app(
+        app,
+        resources={
+            r"/api/*": {
+                "origins": frontend_url.split(",")
+            }
+        }
+    )
     migrate.init_app(app, db)
 
     from app import models
@@ -31,7 +46,6 @@ def create_app():
     app.register_blueprint(pledge_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(campaign_bp)
-
 
     @app.cli.command("seed-admin")
     def seed_admin():

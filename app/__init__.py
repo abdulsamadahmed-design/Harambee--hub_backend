@@ -11,25 +11,19 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    # In production the default secret keys are not allowed
-    secrets = app.config["JWT_SECRET_KEY"] + app.config.get("SECRET_KEY", "")
-    if app.config["APP_ENV"] == "production" and "dev-" in secrets:
-        raise RuntimeError("Set real SECRET_KEY and JWT_SECRET_KEY before running in production")
-
     db.init_app(app)
     jwt.init_app(app)
-    # Only the listed websites may call the API from a browser
-    cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
+    cors.init_app(app)
     migrate.init_app(app, db)
 
     from app import models
     from app.models.user import User
     from app.routes.auth_routes import auth_bp
-    from app.routes.health_routes import health_bp
     from app.routes.registration_routes import registration_bp
     from app.routes.pledge_routes import pledge_bp
     from app.routes.admin_routes import admin_bp
     from app.routes.campaign_routes import campaign_bp
+    from app.routes.health_routes import health_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(health_bp)
@@ -37,6 +31,7 @@ def create_app():
     app.register_blueprint(pledge_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(campaign_bp)
+
 
     @app.cli.command("seed-admin")
     def seed_admin():

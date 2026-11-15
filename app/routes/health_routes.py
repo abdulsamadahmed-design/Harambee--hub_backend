@@ -1,16 +1,22 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, current_app, jsonify
+from sqlalchemy import text
+
 from app.extensions import db
-from app.utils.errors import error_response
 
 health_bp = Blueprint("health", __name__, url_prefix="/api")
 
 
-# GET /api/health: hosting sites call this to check that the app is alive
 @health_bp.get("/health")
 def health():
+    """Tell a host (or a person) whether the API and its database are alive.
+
+    Public on purpose: hosting platforms call it without a token. It returns
+    no secrets and no internal error details.
+    """
     try:
-        # Ask the database a tiny question to prove the connection works
-        db.session.execute(db.text("SELECT 1"))
+        db.session.execute(text("SELECT 1"))
     except Exception:
-        return error_response("Database unavailable", 503)
-    return jsonify({"status": "ok"})
+        current_app.logger.exception("Health check failed: database unreachable")
+        return jsonify({"status": "error", "database": "unreachable"}), 503
+
+    return jsonify({"status": "ok", "database": "ok"}), 200

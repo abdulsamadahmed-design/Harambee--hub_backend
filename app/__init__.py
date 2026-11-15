@@ -20,12 +20,14 @@ def create_app():
     from app.routes.pledge_routes import pledge_bp
     from app.routes.admin_routes import admin_bp
     from app.routes.campaign_routes import campaign_bp
+    from app.routes.health_routes import health_bp  
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(registration_bp)
     app.register_blueprint(pledge_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(campaign_bp)
+    app.register_blueprint(health_bp)
 
     register_error_handlers(app)
 

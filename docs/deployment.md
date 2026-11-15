@@ -36,8 +36,11 @@ SQLite is fine for local development but is wiped on most free hosts, so product
    | `SECRET_KEY` | a long random string (the Blueprint can generate it) |
    | `JWT_SECRET_KEY` | a different long random string |
    | `FRONTEND_URL` | the deployed frontend address |
-   | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL` | once email is built |
-   | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | once uploads are built |
+   | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL` | SendGrid credentials for email delivery |
+   | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Cloudinary credentials for image uploads |
+   | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Set these temporarily or as needed when creating the initial admin account |
+
+   The Blueprint does not define the SendGrid, Cloudinary, or admin variables. Add the required values manually in the Render dashboard. Keep real credentials out of the repository.
 
    If the build fails on the Python version, set a `PYTHON_VERSION` variable to match the one you use locally.
 4. Deploy, then open `https://<your-service>.onrender.com/api/health`.
@@ -57,5 +60,5 @@ Nothing reaches production until the Scrum master merges `develop` into `main`.
 - [ ] `/api/health` answers on the deployed URL
 - [ ] Register and login work from the deployed frontend (no CORS error in the browser console)
 - [ ] The database has the tables (the start command ran `db upgrade`)
-- [ ] An admin account exists (run `python seed.py` once, from the Render shell)
+- [ ] An admin account exists (set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in Render environment variables, then run `flask --app run seed-admin` once from the Render shell)
 - [ ] No secrets in the repository, and `.env` is not committed

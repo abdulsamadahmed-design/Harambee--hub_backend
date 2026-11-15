@@ -11,9 +11,30 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
+    required_secrets = ("SECRET_KEY", "JWT_SECRET_KEY")
+    missing_secrets = [
+        key for key in required_secrets if not app.config.get(key)
+    ]
+    if missing_secrets:
+        raise RuntimeError(
+            "Missing required environment variables: "
+            + ", ".join(missing_secrets)
+        )
+
     db.init_app(app)
     jwt.init_app(app)
-    cors.init_app(app)
+    frontend_url = os.getenv(
+        "FRONTEND_URL", "http://localhost:3000"
+    ).rstrip("/")
+
+    cors.init_app(
+        app,
+        resources={
+            r"/api/*": {
+                "origins": [frontend_url]
+            }
+        }
+    )
     migrate.init_app(app, db)
 
     from app import models

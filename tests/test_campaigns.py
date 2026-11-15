@@ -177,3 +177,10 @@ def test_create_campaign_rejects_request_over_6mb(
         "Request is too large. Maximum size is 6 MB."
     )
     assert Campaign.query.count() == 0
+
+
+def test_list_campaigns_rejects_invalid_page(client):
+    response = client.get("/api/campaigns/?page=abc")
+
+    assert response.status_code == 422
+    assert "error" in response.json

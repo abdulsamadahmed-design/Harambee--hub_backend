@@ -39,12 +39,13 @@ def make_user(app):
     """
     counter = {"n": 0}
 
-    def _make(role="contributor", email=None, password="secret123", name="Test User"):
+    def _make(role="contributor", email=None, password="secret123", name="Test User", email_verified=True):
         counter["n"] += 1
         user = User(
             name=name,
             email=email or f"user{counter['n']}@example.com",
             role=role,
+            email_verified=email_verified,
         )
         user.set_password(password)
         db.session.add(user)

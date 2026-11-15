@@ -21,7 +21,7 @@ registration_schema = RegistrationSchema()
 
 def generate_verification_token(email):
     serializer = URLSafeTimedSerializer(
-        current_app.config["JWT_SECRET_KEY"],
+        current_app.config["SECRET_KEY"],
         salt="harambee-email-verification"
     )
     return serializer.dumps(email)
@@ -29,7 +29,7 @@ def generate_verification_token(email):
 
 def verify_email_token(token):
     serializer = URLSafeTimedSerializer(
-        current_app.config["JWT_SECRET_KEY"],
+        current_app.config["SECRET_KEY"],
         salt="harambee-email-verification"
     )
 

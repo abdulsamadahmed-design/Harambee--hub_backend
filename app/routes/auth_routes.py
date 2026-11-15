@@ -1,31 +1,40 @@
-
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import (
     create_access_token,
     jwt_required,
     get_jwt_identity,
 )
+from marshmallow import ValidationError
 
 from app.extensions import db
 from app.models.user import User
+from app.schemas.auth_schema import LoginSchema
 from app.utils.errors import error_response
 
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 
-# LOGIN
 @auth_bp.post("/login")
 def login():
-    data = request.get_json() or {}
+    try:
+        data = LoginSchema().load(request.get_json(silent=True) or {})
+    except ValidationError as err:
+        return jsonify({
+            "error": "Validation failed",
+            "details": err.messages,
+        }), 422
 
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
+    email = data["email"]
+    password = data["password"]
 
     user = User.query.filter_by(email=email).first()
 
     if not user or not user.check_password(password):
         return error_response("Invalid email or password", 401)
+
+    if not user.email_verified:
+        return error_response("Please verify your email before logging in", 403)
 
     token = create_access_token(
         identity=str(user.id),
@@ -38,7 +47,6 @@ def login():
     }), 200
 
 
-# GET CURRENT LOGGED-IN USER
 @auth_bp.get("/me")
 @jwt_required()
 def me():
@@ -51,7 +59,6 @@ def me():
     return jsonify(user.to_dict()), 200
 
 
-# CHANGE PASSWORD
 @auth_bp.post("/change-password")
 @jwt_required()
 def change_password():

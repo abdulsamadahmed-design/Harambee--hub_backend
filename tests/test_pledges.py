@@ -24,7 +24,7 @@ def _make_user(app, email, role="contributor"):
         return user.id
 
 
-def _make_campaign(app, organizer_id, status="open"):
+def _make_campaign(app, organizer_id, status="active"):
     with app.app_context():
         campaign = Campaign(
             title="Test Wedding",
@@ -134,14 +134,14 @@ def test_anonymous_identity_hidden_public_and_visible_to_organizer(client, app):
     _create_pledge(client, app, campaign_id, contributor_id, is_anonymous=True)
 
     public = client.get(f"/api/pledges/campaign/{campaign_id}").get_json()
-    assert public["pledges"][0]["contributor"] is None
+    assert public["items"][0]["contributor"] is None
 
     managed = client.get(
         f"/api/pledges/campaign/{campaign_id}/manage",
         headers=_headers(app, organizer_id),
     )
     assert managed.status_code == 200
-    assert managed.get_json()["pledges"][0]["contributor"]["id"] == contributor_id
+    assert managed.get_json()["items"][0]["contributor"]["id"] == contributor_id
 
 
 @pytest.mark.skipif(
@@ -286,3 +286,67 @@ def test_update_requires_nonempty_valid_data(client, app):
         json={"amount": -2},
         headers=headers,
     ).status_code == 422
+
+
+@pytest.mark.skipif(
+    not CAMPAIGN_AVAILABLE, reason="campaign.py not merged yet (M3)"
+)
+def test_remind_pledge_returns_error_when_email_fails(
+    client, app, monkeypatch
+):
+    from app.routes import pledge_routes
+
+    organizer_id = _make_user(app, "organizer@example.com", "organizer")
+    contributor_id = _make_user(app, "contributor@example.com")
+    campaign_id = _make_campaign(app, organizer_id)
+
+    pledge_id = _create_pledge(
+        client, app, campaign_id, contributor_id
+    ).get_json()["pledge"]["id"]
+
+    monkeypatch.setattr(
+        pledge_routes, "send_email", lambda *args: False
+    )
+
+    response = client.post(
+        f"/api/pledges/{pledge_id}/remind",
+        headers=_headers(app, organizer_id),
+    )
+
+    assert response.status_code == 502
+    assert response.get_json()["error"] == (
+        "Failed to send pledge reminder"
+    )
+
+
+@pytest.mark.skipif(
+    not CAMPAIGN_AVAILABLE, reason="campaign.py not merged yet (M3)"
+)
+def test_pledge_can_be_created_for_api_created_campaign(
+    client, app, make_user, auth_header
+):
+    organizer = make_user(role="organizer")
+    contributor = make_user(role="contributor")
+
+    campaign_response = client.post(
+        "/api/campaigns/",
+        headers=auth_header(organizer),
+        json={
+            "title": "Community Library",
+            "description": "Raising funds to build a community library.",
+            "goal_amount": "50000.00",
+        },
+    )
+
+    assert campaign_response.status_code == 201
+    campaign = campaign_response.get_json()
+    assert campaign["status"] == "active"
+
+    pledge_response = client.post(
+        f"/api/pledges/campaign/{campaign['id']}",
+        headers=auth_header(contributor),
+        json={"amount": 500},
+    )
+
+    assert pledge_response.status_code == 201
+    assert pledge_response.get_json()["pledge"]["status"] == "pending"

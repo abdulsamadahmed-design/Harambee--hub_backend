@@ -1,3 +1,4 @@
+
 import os
 import click
 
@@ -81,6 +82,40 @@ def create_app():
         db.session.commit()
 
         click.echo("Admin account created successfully.")
+
+    @app.cli.command("reset-admin-password")
+    def reset_admin_password():
+        """Reset an existing administrator's password."""
+
+        email = click.prompt("Admin email").strip().lower()
+
+        admin = User.query.filter_by(
+            email=email,
+            role="admin"
+        ).first()
+
+        if not admin:
+            raise click.ClickException("Admin account not found.")
+
+        password = click.prompt(
+            "New admin password",
+            hide_input=True,
+            confirmation_prompt=True
+        )
+
+        if len(password) < 8:
+            raise click.ClickException(
+                "Password must contain at least 8 characters."
+            )
+
+        admin.set_password(password)
+        db.session.commit()
+
+        click.echo("Admin password updated successfully.")
+        admin.set_password(password)
+        db.session.commit()
+
+        click.echo("Admin password updated successfully.")
 
     from app.cli import register_cli
     register_cli(app)

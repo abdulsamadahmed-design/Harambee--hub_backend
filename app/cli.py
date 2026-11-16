@@ -15,22 +15,53 @@ from app.utils.email import send_verification_email
 registration_schema = RegistrationSchema()
 
 
-def show_dashboard():
-    """Display platform statistics."""
-    users = db.session.query(func.count(User.id)).scalar()
-    campaigns = db.session.query(func.count(Campaign.id)).scalar()
-    pledges = db.session.query(func.count(Pledge.id)).scalar()
 
-    confirmed = db.session.query(
-        func.coalesce(func.sum(Pledge.amount), 0)
-    ).filter(Pledge.status == "confirmed").scalar()
+def show_dashboard(user=None):
+    """Display platform-wide or organizer-specific statistics."""
 
-    click.echo("\n========== HARAMBEE HUB DASHBOARD ==========")
-    click.echo("Total users:       {}".format(users))
-    click.echo("Total campaigns:   {}".format(campaigns))
-    click.echo("Total pledges:     {}".format(pledges))
-    click.echo("Confirmed amount:  {}".format(confirmed))
-    click.echo("============================================\n")
+    if user is None:
+        users = db.session.query(func.count(User.id)).scalar()
+        campaigns = db.session.query(func.count(Campaign.id)).scalar()
+        pledges = db.session.query(func.count(Pledge.id)).scalar()
+
+        confirmed = db.session.query(
+            func.coalesce(func.sum(Pledge.amount), 0)
+        ).filter(Pledge.status == "confirmed").scalar()
+
+        click.echo("\n========== PLATFORM STATISTICS ==========")
+        click.echo("Total users:       {}".format(users))
+        click.echo("Total campaigns:   {}".format(campaigns))
+        click.echo("Total pledges:     {}".format(pledges))
+        click.echo("Confirmed amount:  {}".format(confirmed))
+        click.echo("=========================================\n")
+
+    else:
+        campaigns = Campaign.query.filter_by(
+            organizer_id=user.id
+        ).count()
+
+        pledges = db.session.query(
+            func.count(Pledge.id)
+        ).join(
+            Campaign, Pledge.campaign_id == Campaign.id
+        ).filter(
+            Campaign.organizer_id == user.id
+        ).scalar()
+
+        confirmed = db.session.query(
+            func.coalesce(func.sum(Pledge.amount), 0)
+        ).join(
+            Campaign, Pledge.campaign_id == Campaign.id
+        ).filter(
+            Campaign.organizer_id == user.id,
+            Pledge.status == "confirmed"
+        ).scalar()
+
+        click.echo("\n========== MY STATISTICS ==========")
+        click.echo("My campaigns:               {}".format(campaigns))
+        click.echo("My pledges:                 {}".format(pledges))
+        click.echo("Confirmed amount:           {}".format(confirmed))
+        click.echo("===================================\n")
 
 
 def list_users():
@@ -113,11 +144,14 @@ def check_database():
     try:
         db.session.execute(text("SELECT 1"))
         click.echo("\nDatabase connection: OK\n")
-    except Exception as error:
+    except Exception:
         db.session.rollback()
         click.echo("\nDatabase connection: FAILED")
-        click.echo(str(error))
-
+        click.echo(
+            "Unable to connect to the database. "
+            "Check the application logs."
+        )
+        
 
 def signup():
     """Register an organizer or contributor."""
@@ -142,12 +176,29 @@ def signup():
     try:
         validated = registration_schema.load(data)
     except Exception as error:
-        click.echo("\nRegistration data is invalid: {}".format(error))
+        click.echo("\nPlease fix these problems:")
+
+        messages = getattr(error, "messages", {})
+
+        if isinstance(messages, dict):
+            for field, errors in messages.items():
+                if not isinstance(errors, list):
+                    errors = [str(errors)]
+
+                click.echo("{}: {}".format(field, ", ".join(errors)))
+        else:
+            click.echo("Invalid registration details.")
+
         return
 
-    if User.query.filter_by(email=validated["email"].lower()).first():
+    existing_user = User.query.filter_by(
+        email=validated["email"].strip().lower()
+    ).first()
+
+    if existing_user:
         click.echo("\nAn account with this email already exists.")
         return
+
 
     user = User(
         name=validated["name"].strip(),
@@ -192,27 +243,42 @@ def signup():
         click.echo("Check the application logs for details.")
 
 
+
 def login():
-    """Authenticate a user."""
+    """Authenticate a user with a maximum of three attempts."""
     click.echo("\n========== LOGIN ==========")
 
-    email = click.prompt("Email").strip().lower()
-    password = click.prompt("Password", hide_input=True)
+    max_attempts = 3
 
-    user = User.query.filter_by(email=email).first()
+    for attempt in range(max_attempts):
+        email = click.prompt("Email").strip().lower()
+        password = click.prompt("Password", hide_input=True)
 
-    if user is None or not user.check_password(password):
-        click.echo("\nInvalid email or password.")
-        return None
+        user = User.query.filter_by(email=email).first()
 
-    if not user.email_verified:
-        click.echo("\nPlease verify your email before logging in.")
-        return None
+        if user is None or not user.check_password(password):
+            click.echo("\nInvalid email or password.")
 
-    click.echo("\nWelcome, {}!".format(user.name))
-    click.echo("Role: {}".format(user.role))
+            attempts_left = max_attempts - attempt - 1
 
-    return user
+            if attempts_left == 0:
+                click.echo("Too many failed attempts. Please try again later.")
+                return None
+
+            click.echo("{} attempt(s) left.".format(attempts_left))
+            continue
+
+        if not user.email_verified:
+            click.echo("\nPlease verify your email before logging in.")
+            return None
+
+        click.echo("\nWelcome, {}!".format(user.name))
+        click.echo("Role: {}".format(user.role))
+
+        return user
+
+    return None
+
 
 
 def admin_menu(user):
@@ -260,7 +326,7 @@ def organizer_menu(user):
         )
 
         if choice == "1":
-            show_dashboard()
+            show_dashboard(user)
         elif choice == "2":
             campaigns = Campaign.query.filter_by(
                 organizer_id=user.id

@@ -26,5 +26,6 @@ Werkzeug==3.1.9
 cloudinary
 sendgrid==6.12.5
 gunicorn==27.0.1
-psycopg2-binary==2.9.13
-cloudinary
+psycopg[binary]==3.3.9
+
+

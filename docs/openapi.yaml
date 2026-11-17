@@ -1,20 +1,15 @@
-
 openapi: 3.0.3
-
 info:
   title: Harambee Hub API
-  version: 0.2.0
+  version: 0.2.1
   description: |
     REST API for the Harambee Hub fundraising platform.
 
-    Supports registration, email verification, JWT authentication,
-    campaign management, pledges and administration.
+    Registration, email verification, JWT authentication, campaign management,
+    pledges, and administrator endpoints.
 
-    Protected endpoints require:
+    For protected endpoints, send the access token in this header:
     Authorization: Bearer <token>
-
-    Access tokens expire after one hour.
-
 servers:
   - url: https://harambee-hub-backend.onrender.com
     description: Production API
@@ -27,13 +22,12 @@ tags:
   - name: Admin
 
 paths:
-
   /api/health:
     get:
       tags: [Health]
       summary: Check API and database health
       responses:
-        "200":
+        '200':
           description: API and database are healthy
           content:
             application/json:
@@ -46,33 +40,35 @@ paths:
                   database:
                     type: string
                     example: ok
-        "503":
+        '503':
           description: Database is unreachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/auth/register:
     post:
       tags: [Auth]
       summary: Register a new user
-      description: Only organizers and contributors can self-register. An email verification link is sent after registration.
+      description: Only organizers and contributors can self-register. A verification email is attempted after account creation. The response indicates whether the email was sent.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - name
-                - email
-                - password
-                - role
+              required: [name, email, password, role]
               properties:
                 name:
                   type: string
+                  minLength: 1
                   maxLength: 100
                   example: Amina Otieno
                 email:
                   type: string
                   format: email
+                  maxLength: 120
                   example: amina@example.com
                 password:
                   type: string
@@ -82,15 +78,13 @@ paths:
                   type: string
                   nullable: true
                   maxLength: 20
-                  example: "0712345678"
+                  example: '0712345678'
                 role:
                   type: string
-                  enum:
-                    - organizer
-                    - contributor
+                  enum: [organizer, contributor]
       responses:
-        "201":
-          description: Registration successful
+        '201':
+          description: Account created. Check email_sent to know whether the verification email was sent.
           content:
             application/json:
               schema:
@@ -101,27 +95,31 @@ paths:
                   email_sent:
                     type: boolean
                   user:
-                    $ref: "#/components/schemas/User"
-        "409":
+                    $ref: '#/components/schemas/User'
+        '409':
           description: Email already registered
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-        "422":
-          description: Registration validation failed
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Registration validation failed. Validation messages are returned in the errors property.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RegistrationValidationError"
-        "500":
+                $ref: '#/components/schemas/RegistrationValidationError'
+        '500':
           description: Registration failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/auth/verify-email/{token}:
     get:
       tags: [Auth]
       summary: Verify a user's email address
-      description: Verification links expire after one hour.
+      description: Verification tokens expire after one hour.
       parameters:
         - name: token
           in: path
@@ -129,33 +127,43 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           description: Email verified successfully or already verified
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MessageResponse"
-        "400":
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
           description: Verification link is invalid or expired
-        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
           description: User not found
-        "500":
-          description: Email verification failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Verification failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/auth/login:
     post:
       tags: [Auth]
       summary: Log in
-      description: Returns a JWT access token. Unverified users cannot log in.
+      description: Returns a JWT access token. Users must verify their email before logging in. The access token expires after one hour.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - email
-                - password
+              required: [email, password]
               properties:
                 email:
                   type: string
@@ -163,20 +171,33 @@ paths:
                   example: amina@example.com
                 password:
                   type: string
+                  minLength: 1
                   example: secret123
       responses:
-        "200":
+        '200':
           description: Login successful
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthResponse"
-        "401":
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
           description: Invalid email or password
-        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
           description: Email address has not been verified
-        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
           description: Login validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
 
   /api/auth/me:
     get:
@@ -185,16 +206,24 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        "200":
+        '200':
           description: Current user details
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/User"
-        "401":
-          description: Missing, invalid or expired token
-        "404":
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Missing, invalid, or expired access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
           description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/auth/change-password:
     post:
@@ -208,9 +237,7 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - old_password
-                - new_password
+              required: [old_password, new_password]
               properties:
                 old_password:
                   type: string
@@ -218,18 +245,30 @@ paths:
                   type: string
                   minLength: 8
       responses:
-        "200":
+        '200':
           description: Password updated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MessageResponse"
-        "400":
-          description: New password must be at least 8 characters
-        "401":
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: New password must be at least eight characters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
           description: Incorrect old password or missing/invalid token
-        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
           description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/campaigns/:
     get:
@@ -237,22 +276,25 @@ paths:
       summary: List campaigns
       description: Returns campaigns ordered by creation date, newest first.
       parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
       responses:
-        "200":
+        '200':
           description: Paginated campaign list
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PaginatedCampaigns"
-        "422":
+                $ref: '#/components/schemas/PaginatedCampaigns'
+        '422':
           description: Invalid pagination parameters
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags: [Campaigns]
       summary: Create a campaign
-      description: Organizer only. Accepts JSON or multipart form data with an optional image.
+      description: Organizer only. Accepts JSON or multipart form data with an optional image upload.
       security:
         - bearerAuth: []
       requestBody:
@@ -260,14 +302,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CampaignInput"
+              $ref: '#/components/schemas/CampaignInput'
           multipart/form-data:
             schema:
               type: object
-              required:
-                - title
-                - description
-                - goal_amount
+              required: [title, description, goal_amount]
               properties:
                 title:
                   type: string
@@ -287,22 +326,42 @@ paths:
                   type: string
                   format: binary
       responses:
-        "201":
+        '201':
           description: Campaign created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Campaign"
-        "400":
+                $ref: '#/components/schemas/Campaign'
+        '400':
           description: Invalid request body or campaign data
-        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
           description: Authentication required
-        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
           description: Organizer role required
-        "422":
-          description: Invalid campaign pagination or data
-        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Invalid campaign data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
           description: Image upload failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/campaigns/{campaign_id}:
     get:
@@ -315,20 +374,24 @@ paths:
           schema:
             type: integer
       responses:
-        "200":
+        '200':
           description: Campaign details
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Campaign"
-        "404":
+                $ref: '#/components/schemas/Campaign'
+        '404':
           description: Campaign not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/pledges/campaign/{campaign_id}:
     get:
       tags: [Pledges]
       summary: List public pledges for a campaign
-      description: Cancelled pledges are not publicly displayed. Anonymous contributor identities are hidden.
+      description: Cancelled pledges are excluded from the public list. Anonymous contributor identities are hidden.
       parameters:
         - name: campaign_id
           in: path
@@ -340,20 +403,27 @@ paths:
           schema:
             type: string
             enum: [pending, confirmed]
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
       responses:
-        "200":
+        '200':
           description: Paginated campaign pledges
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CampaignPledgeList"
-        "404":
+                $ref: '#/components/schemas/CampaignPledgeList'
+        '404':
           description: Campaign not found
-        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
           description: Invalid query parameters
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags: [Pledges]
       summary: Create a pledge for a campaign
@@ -371,9 +441,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PledgeInput"
+              $ref: '#/components/schemas/PledgeInput'
       responses:
-        "201":
+        '201':
           description: Pledge created
           content:
             application/json:
@@ -381,17 +451,43 @@ paths:
                 type: object
                 properties:
                   pledge:
-                    $ref: "#/components/schemas/Pledge"
-        "401":
-          description: Authentication required
-        "403":
+                    $ref: '#/components/schemas/Pledge'
+        '401':
+          description: Authentication required or user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
           description: Contributor role required
-        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
           description: Campaign not found
-        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
           description: Campaign is closed
-        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
           description: Invalid pledge data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Campaign module unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/pledges/mine:
     get:
@@ -405,19 +501,27 @@ paths:
           schema:
             type: string
             enum: [pending, confirmed, cancelled]
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
       responses:
-        "200":
+        '200':
           description: Paginated pledges belonging to the user
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MyPledgeList"
-        "401":
-          description: Authentication required
-        "422":
+                $ref: '#/components/schemas/MyPledgeList'
+        '401':
+          description: Authentication required or user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
           description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/pledges/campaign/{campaign_id}/manage:
     get:
@@ -437,29 +541,51 @@ paths:
           schema:
             type: string
             enum: [pending, confirmed, cancelled]
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
       responses:
-        "200":
-          description: Paginated campaign pledges and status counts
+        '200':
+          description: Paginated pledges and status counts
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ManagedPledgeList"
-        "401":
-          description: Authentication required
-        "403":
+                $ref: '#/components/schemas/ManagedPledgeList'
+        '401':
+          description: Authentication required or user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
           description: Campaign organizer or admin access required
-        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
           description: Campaign not found
-        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
           description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Campaign module unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/pledges/{pledge_id}:
     get:
       tags: [Pledges]
       summary: Get a pledge by ID
-      description: Accessible to the contributor, campaign organizer or an admin.
+      description: Accessible to the contributor, campaign organizer, or an admin.
       security:
         - bearerAuth: []
       parameters:
@@ -469,7 +595,7 @@ paths:
           schema:
             type: integer
       responses:
-        "200":
+        '200':
           description: Pledge details
           content:
             application/json:
@@ -477,18 +603,29 @@ paths:
                 type: object
                 properties:
                   pledge:
-                    $ref: "#/components/schemas/Pledge"
-        "401":
-          description: Authentication required
-        "403":
+                    $ref: '#/components/schemas/Pledge'
+        '401':
+          description: Authentication required or user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
           description: Access denied
-        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
           description: Pledge not found
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     patch:
       tags: [Pledges]
       summary: Update a pending pledge
-      description: Only the contributor who created the pending pledge can edit it.
+      description: Only the contributor who created the pending pledge can edit it. Provide at least one of amount or message.
       security:
         - bearerAuth: []
       parameters:
@@ -502,9 +639,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PledgeUpdateInput"
+              $ref: '#/components/schemas/PledgeUpdateInput'
       responses:
-        "200":
+        '200':
           description: Pledge updated
           content:
             application/json:
@@ -512,18 +649,37 @@ paths:
                 type: object
                 properties:
                   pledge:
-                    $ref: "#/components/schemas/Pledge"
-        "401":
-          description: Authentication required
-        "403":
+                    $ref: '#/components/schemas/Pledge'
+        '401':
+          description: Authentication required or user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
           description: Access denied
-        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
           description: Pledge not found
-        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
           description: Only pending pledges can be edited
-        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
           description: Invalid pledge data
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags: [Pledges]
       summary: Cancel a pending pledge
@@ -537,7 +693,7 @@ paths:
           schema:
             type: integer
       responses:
-        "200":
+        '200':
           description: Pledge cancelled
           content:
             application/json:
@@ -545,15 +701,31 @@ paths:
                 type: object
                 properties:
                   pledge:
-                    $ref: "#/components/schemas/Pledge"
-        "401":
-          description: Authentication required
-        "403":
+                    $ref: '#/components/schemas/Pledge'
+        '401':
+          description: Authentication required or user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
           description: Access denied
-        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
           description: Pledge not found
-        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
           description: Only pending pledges can be cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/pledges/{pledge_id}/confirm:
     post:
@@ -569,20 +741,42 @@ paths:
           schema:
             type: integer
       responses:
-        "200":
+        '200':
           description: Pledge confirmed
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ConfirmPledgeResponse"
-        "401":
-          description: Authentication required
-        "403":
+                $ref: '#/components/schemas/ConfirmPledgeResponse'
+        '401':
+          description: Authentication required or user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
           description: Access denied
-        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
           description: Pledge not found
-        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
           description: Only pending pledges can be confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Campaign module unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/pledges/{pledge_id}/remind:
     post:
@@ -598,24 +792,48 @@ paths:
           schema:
             type: integer
       responses:
-        "200":
+        '200':
           description: Reminder sent
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MessageResponse"
-        "400":
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
           description: Contributor email is unavailable
-        "401":
-          description: Authentication required
-        "403":
-          description: Access denied
-        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required or user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Campaign organizer access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
           description: Pledge not found
-        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
           description: Failed to send pledge reminder
-        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
           description: Email or campaign service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/admin/users:
     get:
@@ -625,21 +843,33 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
       responses:
-        "200":
+        '200':
           description: Paginated user list
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PaginatedUsers"
-        "401":
+                $ref: '#/components/schemas/PaginatedUsers'
+        '401':
           description: Authentication required
-        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
           description: Admin role required
-        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
           description: Invalid pagination parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/admin/dashboard:
     get:
@@ -648,19 +878,26 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        "200":
+        '200':
           description: Platform statistics
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AdminDashboard"
-        "401":
+                $ref: '#/components/schemas/AdminDashboard'
+        '401':
           description: Authentication required
-        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
           description: Admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
 components:
-
   securitySchemes:
     bearerAuth:
       type: http
@@ -676,11 +913,10 @@ components:
         type: integer
         minimum: 1
         default: 1
-
     PerPage:
       name: per_page
       in: query
-      description: Number of records per page. Maximum 100.
+      description: Number of records per page. Maximum is 100.
       schema:
         type: integer
         minimum: 1
@@ -688,7 +924,6 @@ components:
         default: 10
 
   schemas:
-
     Error:
       type: object
       properties:
@@ -698,6 +933,19 @@ components:
         details:
           type: object
           additionalProperties: true
+
+    ValidationError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Validation failed
+        details:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
 
     RegistrationValidationError:
       type: object
@@ -741,14 +989,11 @@ components:
           type: string
           description: JWT access token. Expires after one hour.
         user:
-          $ref: "#/components/schemas/User"
+          $ref: '#/components/schemas/User'
 
     CampaignInput:
       type: object
-      required:
-        - title
-        - description
-        - goal_amount
+      required: [title, description, goal_amount]
       properties:
         title:
           type: string
@@ -760,9 +1005,9 @@ components:
           minLength: 10
           example: A fundraising campaign to support school fees.
         goal_amount:
-          type: string
-          description: Decimal amount, with up to two decimal places.
-          example: "50000.00"
+          type: number
+          minimum: 0.01
+          example: 50000.00
         end_date:
           type: string
           format: date-time
@@ -779,7 +1024,8 @@ components:
           type: string
         goal_amount:
           type: string
-          example: "50000.00"
+          description: Decimal amount serialized as a string with two decimal places.
+          example: '50000.00'
         image_url:
           type: string
           nullable: true
@@ -802,7 +1048,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/Campaign"
+            $ref: '#/components/schemas/Campaign'
         page:
           type: integer
         per_page:
@@ -814,8 +1060,7 @@ components:
 
     PledgeInput:
       type: object
-      required:
-        - amount
+      required: [amount]
       properties:
         amount:
           type: number
@@ -832,8 +1077,8 @@ components:
 
     PledgeUpdateInput:
       type: object
-      description: Provide at least one of amount or message.
       minProperties: 1
+      description: Provide at least one of amount or message.
       properties:
         amount:
           type: number
@@ -844,7 +1089,9 @@ components:
           nullable: true
           maxLength: 500
 
-    Pledge:
+    
+
+    Pledge:                                   
       type: object
       properties:
         id:
@@ -869,19 +1116,14 @@ components:
           format: date-time
           nullable: true
         contributor:
+          type: object
           nullable: true
-          oneOf:
-            - $ref: "#/components/schemas/ContributorSummary"
-            - type: "null"
-
-    ContributorSummary:
-      type: object
-      properties:
-        id:
-          type: integer
-        name:
-          type: string
-          nullable: true
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+              nullable: true
 
     CampaignPledgeList:
       type: object
@@ -903,7 +1145,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/Pledge"
+            $ref: '#/components/schemas/Pledge'
 
     MyPledgeList:
       type: object
@@ -921,7 +1163,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/Pledge"
+            $ref: '#/components/schemas/Pledge'
 
     ManagedPledgeList:
       type: object
@@ -950,13 +1192,13 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/Pledge"
+            $ref: '#/components/schemas/Pledge'
 
     ConfirmPledgeResponse:
       type: object
       properties:
         pledge:
-          $ref: "#/components/schemas/Pledge"
+          $ref: '#/components/schemas/Pledge'
         campaign_id:
           type: integer
         raised_amount:
@@ -968,7 +1210,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/User"
+            $ref: '#/components/schemas/User'
         page:
           type: integer
         per_page:
@@ -991,10 +1233,10 @@ components:
             type: integer
         total_pledged:
           type: string
-          example: "25000.00"
+          example: '25000.00'
         total_confirmed:
           type: string
-          example: "15000.00"
+          example: '15000.00'
         pledges_by_status:
           type: object
           additionalProperties:

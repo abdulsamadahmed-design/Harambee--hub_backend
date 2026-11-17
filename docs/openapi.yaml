@@ -12,8 +12,8 @@ info:
     Authentication uses a JWT. Log in, then send the token in the header
     `Authorization: Bearer <token>`.
 servers:
-  - url: http://127.0.0.1:5000
-    description: Local development
+  - url: https://harambee-hub-backend.onrender.com
+    description: production server
 tags:
   - name: Auth
   - name: Campaigns

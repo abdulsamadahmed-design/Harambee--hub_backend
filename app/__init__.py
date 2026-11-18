@@ -40,6 +40,8 @@ def create_app():
     from app.routes.admin_routes import admin_bp
     from app.routes.campaign_routes import campaign_bp
     from app.routes.health_routes import health_bp
+    from app.routes.docs_routes import docs_bp, swaggerui_blueprint
+
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(health_bp)
@@ -47,6 +49,8 @@ def create_app():
     app.register_blueprint(pledge_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(campaign_bp)
+    app.register_blueprint(docs_bp)
+    app.register_blueprint(swaggerui_blueprint)
 
     @app.cli.command("seed-organizer")
     def seed_organizer():

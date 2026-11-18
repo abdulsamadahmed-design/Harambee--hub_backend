@@ -13,7 +13,6 @@ class PledgeCreateSchema(Schema):
         allow_none=True,
         validate=validate.Length(max=500),
     )
-    is_anonymous = fields.Boolean(load_default=False)
 
 
 class PledgeUpdateSchema(Schema):

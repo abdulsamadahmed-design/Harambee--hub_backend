@@ -40,6 +40,8 @@ def create_app():
     from app.routes.admin_routes import admin_bp
     from app.routes.campaign_routes import campaign_bp
     from app.routes.health_routes import health_bp
+    from app.routes.docs_routes import docs_bp, swaggerui_blueprint
+
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(health_bp)
@@ -47,58 +49,59 @@ def create_app():
     app.register_blueprint(pledge_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(campaign_bp)
+    app.register_blueprint(docs_bp)
+    app.register_blueprint(swaggerui_blueprint)
 
-    @app.cli.command("seed-admin")
-    def seed_admin():
-        """Create the initial administrator account."""
-        email = os.environ.get("ADMIN_EMAIL", "").strip()
-        password = os.environ.get("ADMIN_PASSWORD")
+    @app.cli.command("seed-organizer")
+    def seed_organizer():
+        """Create the initial organizer account."""
+        email = os.environ.get("ORGANIZER_EMAIL", "").strip().lower()
+        password = os.environ.get("ORGANIZER_PASSWORD")
 
         if not email or not password:
             raise click.ClickException(
-                "ADMIN_EMAIL and ADMIN_PASSWORD must both be set."
+                "ORGANIZER_EMAIL and ORGANIZER_PASSWORD must both be set."
             )
 
         existing_user = User.query.filter_by(email=email).first()
 
         if existing_user:
-            if existing_user.role == "admin":
-                click.echo("Admin already exists. No changes made.")
+            if existing_user.role == "organizer":
+                click.echo("Organizer already exists. No changes made.")
                 return
 
             raise click.ClickException(
-                "A user with this email already exists and is not an admin."
+                "A user with this email already exists and is not an organizer."
             )
 
-        admin = User(
+        organizer = User(
             name=email.split("@", 1)[0],
             email=email,
-            role="admin",
+            role="organizer",
             email_verified=True,
         )
-        admin.set_password(password)
+        organizer.set_password(password)
 
-        db.session.add(admin)
+        db.session.add(organizer)
         db.session.commit()
 
-        click.echo("Admin account created successfully.")
+        click.echo("Organizer account created successfully.")
 
-    @app.cli.command("reset-admin-password")
-    def reset_admin_password():
-        """Reset an existing administrator's password."""
+    @app.cli.command("reset-organizer-password")
+    def reset_organizer_password():
+        """Reset an existing organizer's password."""
+        email = click.prompt("Organizer email").strip().lower()
 
-        email = click.prompt("Admin email").strip().lower()
-
-        admin = User.query.filter_by(
+        organizer = User.query.filter_by(
             email=email,
-            role="admin"
+            role="organizer"
         ).first()
 
-        if not admin:
-            raise click.ClickException("Admin account not found.")
+        if not organizer:
+            raise click.ClickException("Organizer account not found.")
 
         password = click.prompt(
-            "New admin password",
+            "New organizer password",
             hide_input=True,
             confirmation_prompt=True
         )
@@ -108,14 +111,10 @@ def create_app():
                 "Password must contain at least 8 characters."
             )
 
-        admin.set_password(password)
+        organizer.set_password(password)
         db.session.commit()
 
-        click.echo("Admin password updated successfully.")
-        admin.set_password(password)
-        db.session.commit()
-
-        click.echo("Admin password updated successfully.")
+        click.echo("Organizer password updated successfully.")
 
     from app.cli import register_cli
     register_cli(app)

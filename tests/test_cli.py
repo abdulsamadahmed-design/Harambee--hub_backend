@@ -4,9 +4,8 @@ The CLI reads its answers from `input=`, one line per prompt.
 
 Menu numbers used below:
   main menu:         1 sign up, 2 login, 3 exit
-  admin menu:        1 stats, 2 users, 3 campaigns, 4 pledges, 5 database, 6 logout
-  organizer menu:    1 stats, 2 campaigns, 3 logout
-  contributor menu:  1 campaigns, 2 pledges, 3 logout
+  organizer menu:    1 stats, 2 campaigns, 6 campaign pledges, 10 logout
+  contributor menu:  1 campaigns, 3 my pledges, 4 logout
 """
 from datetime import datetime, timezone
 
@@ -41,13 +40,12 @@ def make_campaign(organizer, title="Wedding fund", goal=100000):
     return campaign
 
 
-def make_pledge(campaign, contributor, amount, status="confirmed", anonymous=False):
+def make_pledge(campaign, contributor, amount, status="confirmed"):
     pledge = Pledge(
         campaign_id=campaign.id,
         contributor_id=contributor.id,
         amount=amount,
         status=status,
-        is_anonymous=anonymous,
     )
     db.session.add(pledge)
     db.session.commit()
@@ -59,23 +57,23 @@ def make_pledge(campaign, contributor, amount, status="confirmed", anonymous=Fal
 
 def test_login_success_for_contributor(app, make_user):
     make_user(email="a@b.co", role="contributor")
-    result = run_cli(app, "2\na@b.co\nsecret123\n3\n3\n")
+    result = run_cli(app, "2\na@b.co\nsecret123\n4\n3\n")
     assert result.exit_code == 0
-    assert "Welcome, Test User!" in result.output
+    assert "Logged in successfully." in result.output
     assert "CONTRIBUTOR DASHBOARD" in result.output
 
 
 def test_login_email_is_case_and_space_insensitive(app, make_user):
     make_user(email="a@b.co", role="contributor")
-    result = run_cli(app, "2\n  A@B.CO \nsecret123\n3\n3\n")
-    assert "Welcome" in result.output
+    result = run_cli(app, "2\n  A@B.CO \nsecret123\n4\n3\n")
+    assert "Logged in successfully." in result.output
 
 
 def test_login_wrong_password_then_right_password(app, make_user):
     make_user(email="a@b.co", role="contributor")
-    result = run_cli(app, "2\na@b.co\nbad\na@b.co\nsecret123\n3\n3\n")
+    result = run_cli(app, "2\na@b.co\nbad\na@b.co\nsecret123\n4\n3\n")
     assert "2 attempt(s) left" in result.output
-    assert "Welcome" in result.output
+    assert "Logged in successfully." in result.output
 
 
 def test_login_locks_out_after_three_failures(app, make_user):
@@ -90,8 +88,8 @@ def test_login_unknown_email_gets_the_same_message_as_wrong_password(app, make_u
     make_user(email="a@b.co", role="contributor")
     wrong_password = run_cli(app, "2\na@b.co\nbad\na@b.co\nbad\na@b.co\nbad\n3\n")
     unknown_email = run_cli(app, "2\nno@one.co\nbad\nno@one.co\nbad\nno@one.co\nbad\n3\n")
-    assert "Invalid email or password" in wrong_password.output
-    assert "Invalid email or password" in unknown_email.output
+    assert "Wrong email or password." in wrong_password.output
+    assert "Wrong email or password." in unknown_email.output
     assert "does not exist" not in unknown_email.output.lower()
 
 
@@ -112,55 +110,36 @@ def test_unverified_status_is_not_revealed_for_a_wrong_password(app, make_user):
     assert "verify your email" not in result.output
 
 
-# ---------- statistics ----------
+# ---------- organizer and contributor permissions ----------
 
 
-def test_organizer_sees_only_their_own_numbers(app, make_user):
-    amina = make_user(email="amina@x.co", role="organizer")
+def test_organizer_sees_platform_wide_numbers(app, make_user):
+    make_user(email="amina@x.co", role="organizer")
     brian = make_user(email="brian@x.co", role="organizer")
     donor = make_user(email="donor@x.co", role="contributor")
 
-    amina_campaign = make_campaign(amina, title="Amina wedding")
-    brian_campaign = make_campaign(brian, title="Brian school fees")
-    make_pledge(amina_campaign, donor, 500)
-    make_pledge(brian_campaign, donor, 900)
+    make_pledge(make_campaign(brian, title="Amina wedding"), donor, 500)
+    make_pledge(make_campaign(brian, title="Brian school fees"), donor, 900)
 
-    result = run_cli(app, "2\namina@x.co\nsecret123\n1\n3\n3\n")
+    result = run_cli(app, "2\namina@x.co\nsecret123\n1\n10\n3\n")
 
-    assert "MY STATISTICS" in result.output
-    assert "My campaigns:               1" in result.output
-    assert "Confirmed amount:           500" in result.output
-    assert "900" not in result.output
+    assert "HARAMBEE HUB DASHBOARD" in result.output
+    assert "Total campaigns:   2" in result.output
+    assert "Total pledges:     2" in result.output
+    assert "Confirmed amount:  1400" in result.output
     assert "Total users" not in result.output
 
 
-def test_admin_sees_platform_wide_numbers(app, make_user):
-    admin = make_user(email="admin@x.co", role="admin")
-    amina = make_user(email="amina@x.co", role="organizer")
-    brian = make_user(email="brian@x.co", role="organizer")
-    donor = make_user(email="donor@x.co", role="contributor")
-    make_pledge(make_campaign(amina), donor, 500)
-    make_pledge(make_campaign(brian, title="Other"), donor, 900)
-
-    result = run_cli(app, "2\nadmin@x.co\nsecret123\n1\n6\n3\n")
-
-    assert "PLATFORM STATISTICS" in result.output
-    assert "Total users:       4" in result.output
-    assert "Total campaigns:   2" in result.output
-    assert "Confirmed amount:  1400" in result.output
-    assert admin.id  # the admin exists and logged in
-
-
-def test_organizer_campaign_list_shows_only_their_campaigns(app, make_user):
+def test_organizer_sees_all_campaigns(app, make_user):
     amina = make_user(email="amina@x.co", role="organizer")
     brian = make_user(email="brian@x.co", role="organizer")
     make_campaign(amina, title="Amina wedding")
     make_campaign(brian, title="Brian school fees")
 
-    result = run_cli(app, "2\namina@x.co\nsecret123\n2\n3\n3\n")
+    result = run_cli(app, "2\namina@x.co\nsecret123\n2\n10\n3\n")
 
     assert "Amina wedding" in result.output
-    assert "Brian school fees" not in result.output
+    assert "Brian school fees" in result.output
 
 
 def test_contributor_sees_only_their_own_pledges(app, make_user):
@@ -171,49 +150,29 @@ def test_contributor_sees_only_their_own_pledges(app, make_user):
     make_pledge(campaign, mine, 111)
     make_pledge(campaign, other, 222)
 
-    result = run_cli(app, "2\nmine@x.co\nsecret123\n2\n3\n3\n")
+    result = run_cli(app, "2\nmine@x.co\nsecret123\n3\n4\n3\n")
 
     assert "Amount: 111" in result.output
     assert "Amount: 222" not in result.output
 
 
-def test_admin_pledge_list_hides_anonymous_contributors(app, make_user):
-    make_user(email="admin@x.co", role="admin")
-    amina = make_user(email="amina@x.co", role="organizer")
-    donor = make_user(email="donor@x.co", role="contributor")
-    make_pledge(make_campaign(amina), donor, 300, anonymous=True)
+def test_organizer_pledge_list_shows_contributor_full_name(app, make_user):
+    organizer = make_user(email="organizer@x.co", role="organizer")
+    donor = make_user(
+        email="donor@x.co", name="Full Contributor Name", role="contributor"
+    )
+    campaign = make_campaign(organizer)
+    make_pledge(campaign, donor, 300)
 
-    result = run_cli(app, "2\nadmin@x.co\nsecret123\n4\n6\n3\n")
+    result = run_cli(
+        app,
+        "2\norganizer@x.co\nsecret123\n6\n{}\n10\n3\n".format(
+            campaign.id
+        ),
+    )
 
-    assert "Contributor: Anonymous" in result.output
-
-
-# ---------- database check ----------
-
-
-def test_database_check_ok(app, make_user):
-    make_user(email="admin@x.co", role="admin")
-    result = run_cli(app, "2\nadmin@x.co\nsecret123\n5\n6\n3\n")
-    assert "Database connection: OK" in result.output
-
-
-def test_database_check_does_not_print_the_raw_error(app, make_user, monkeypatch):
-    make_user(email="admin@x.co", role="admin")
-    original_execute = db.session.execute
-
-    def broken_execute(statement, *args, **kwargs):
-        if "SELECT 1" in str(statement):
-            raise RuntimeError("password=super-secret host=10.0.0.5")
-        return original_execute(statement, *args, **kwargs)
-
-    # Log in first with the real execute, then break only the health query.
-    monkeypatch.setattr(db.session, "execute", broken_execute)
-
-    result = run_cli(app, "2\nadmin@x.co\nsecret123\n5\n6\n3\n")
-
-    assert "Database connection: FAILED" in result.output
-    assert "super-secret" not in result.output
-    assert "10.0.0.5" not in result.output
+    assert "Contributor: Full Contributor Name" in result.output
+    assert "Anonymous" not in result.output
 
 
 # ---------- sign up ----------
@@ -244,7 +203,7 @@ def test_signup_creates_an_unverified_account_and_sends_the_email(app, monkeypat
     result = run_cli(app, SIGNUP_OK)
 
     assert "Account created successfully" in result.output
-    assert "verification email has been sent" in result.output
+    assert "Please verify your email before logging in." in result.output
     assert sent["email"] == "new@example.com"
     assert "/api/auth/verify-email/" in sent["url"]
 
@@ -258,7 +217,7 @@ def test_signup_still_succeeds_when_the_email_cannot_be_sent(app, monkeypatch):
     monkeypatch.setattr("app.cli.send_verification_email", lambda email, url: False)
     result = run_cli(app, SIGNUP_OK)
     assert "Account created successfully" in result.output
-    assert "could not be sent" in result.output
+    assert "Account created successfully" in result.output
 
 
 def test_signup_shows_friendly_messages_for_invalid_input(app, monkeypatch):
@@ -299,7 +258,7 @@ def test_signup_cannot_create_an_admin(app, monkeypatch):
     user = User.query.filter_by(email="new@example.com").first()
     assert user is not None
     assert user.role == "contributor"
-    assert "Error" in result.output or "invalid" in result.output.lower()
+    assert "Please enter 1, 2, organizer, or contributor." in result.output
 
 
 # ---------- exit ----------

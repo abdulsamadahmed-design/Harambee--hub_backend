@@ -95,7 +95,7 @@ def _pagination_data(pagination):
 
 @pledge_bp.get("/campaign/<int:campaign_id>")
 def list_campaign_pledges(campaign_id):
-    """Public campaign pledge list, with anonymous contributor identity hidden."""
+    """List public campaign pledges with contributor names."""
     if Campaign is None:
         return _error("Campaign module not available yet", 503)
     if _get_campaign(campaign_id) is None:
@@ -150,7 +150,6 @@ def create_pledge(campaign_id):
         contributor_id=g.user.id,
         amount=data["amount"],
         message=data.get("message"),
-        is_anonymous=data["is_anonymous"],
     )
     db.session.add(pledge)
     db.session.commit()
@@ -220,8 +219,12 @@ def cancel_pledge(pledge_id):
     pledge = db.session.get(Pledge, pledge_id)
     if pledge is None:
         return _error("Pledge not found", 404)
-    if pledge.contributor_id != g.user.id and g.user.role != "admin":
+    if not (
+        pledge.contributor_id == g.user.id
+        or g.user.role == "organizer"
+    ):
         return _error("Forbidden", 403)
+
     if pledge.status != "pending":
         return _error("Only pending pledges can be cancelled", 409)
 
@@ -239,11 +242,7 @@ def confirm_pledge(pledge_id):
     if Campaign is None:
         return _error("Campaign module not available yet", 503)
 
-    campaign = getattr(pledge, "campaign", None)
-    is_organizer = (
-        campaign is not None and campaign.organizer_id == g.user.id
-    )
-    if not (is_organizer or g.user.role == "admin"):
+    if g.user.role != "organizer":
         return _error("Forbidden", 403)
     if pledge.status != "pending":
         return _error("Only pending pledges can be confirmed", 409)
@@ -268,7 +267,7 @@ def organizer_manage_view(campaign_id):
     campaign = _get_campaign(campaign_id)
     if campaign is None:
         return _error("Campaign not found", 404)
-    if campaign.organizer_id != g.user.id and g.user.role != "admin":
+    if g.user.role != "organizer":
         return _error("Forbidden", 403)
 
     try:
@@ -304,7 +303,7 @@ def remind_pledge(pledge_id):
     if pledge is None:
         return _error("Pledge not found", 404)
     campaign = getattr(pledge, "campaign", None)
-    if campaign is None or campaign.organizer_id != g.user.id:
+    if campaign is None or g.user.role != "organizer":
         return _error("Forbidden", 403)
     if pledge.contributor is None or not getattr(pledge.contributor, "email", None):
         return _error("Contributor email not available", 400)
@@ -322,11 +321,7 @@ def remind_pledge(pledge_id):
 
 
 def _can_view(pledge, user):
-    campaign = getattr(pledge, "campaign", None)
     return (
-        user.role == "admin"
-        or pledge.contributor_id == user.id
-        or (
-            campaign is not None and campaign.organizer_id == user.id
-        )
+        pledge.contributor_id == user.id
+        or user.role == "organizer"
     )

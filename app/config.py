@@ -11,6 +11,7 @@ if db_url.startswith("postgres://"):
 
 
 class Config:
+    HARAMBEE_ENV = os.getenv("HARAMBEE_ENV", "production").lower()
     SQLALCHEMY_DATABASE_URI = db_url
 
     SECRET_KEY = os.getenv("SECRET_KEY")

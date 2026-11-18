@@ -18,7 +18,7 @@ admin_bp = Blueprint(
 
 
 @admin_bp.get("/users")
-@roles_required("admin")
+@roles_required("organizer")
 def list_users():
     """Return a paginated list of users."""
     try:
@@ -34,9 +34,9 @@ def list_users():
 
 
 @admin_bp.get("/dashboard")
-@roles_required("admin")
+@roles_required("organizer")
 def dashboard_stats():
-    """Return platform statistics for administrators."""
+    """Return platform statistics for organizers."""
 
     users_by_role = {
         role or "unassigned": count

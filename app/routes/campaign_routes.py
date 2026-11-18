@@ -92,3 +92,65 @@ def create_campaign():
         db.session.rollback()
         print(f"Cloudinary upload error: {type(error).__name__}: {error}")
         return error_response("Image upload failed. Please try again.", 502)
+
+
+@campaign_bp.patch("/<int:campaign_id>")
+@roles_required("organizer")
+def update_campaign(campaign_id):
+    """Allow any organizer to update any campaign."""
+    campaign = db.session.get(Campaign, campaign_id)
+
+    if not campaign:
+        return error_response("Campaign not found", 404)
+
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict) or not data:
+        return error_response("Request body must contain campaign fields", 400)
+
+    try:
+        campaign_data = campaign_schema.load(data, partial=True)
+
+        for field, value in campaign_data.items():
+            setattr(campaign, field, value)
+
+        db.session.commit()
+
+        return jsonify(campaign_schema.dump(campaign)), 200
+
+    except ValidationError as error:
+        db.session.rollback()
+        return jsonify({"errors": error.messages}), 400
+
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+@campaign_bp.delete("/<int:campaign_id>")
+@roles_required("organizer")
+def delete_campaign(campaign_id):
+    """Allow any organizer to delete a campaign if it has no pledges."""
+    from app.models.pledge import Pledge
+
+    campaign = db.session.get(Campaign, campaign_id)
+
+    if not campaign:
+        return error_response("Campaign not found", 404)
+
+
+    existing_pledge = Pledge.query.filter_by(
+        campaign_id=campaign.id
+    ).first()
+
+    if existing_pledge:
+        return error_response(
+            "This campaign cannot be deleted because it has pledge history",
+            409
+        )
+
+    db.session.delete(campaign)
+    db.session.commit()
+
+    return jsonify({"message": "Campaign deleted successfully"}), 200

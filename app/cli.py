@@ -1,6 +1,9 @@
 import os
+from datetime import datetime, timezone
+from decimal import Decimal
 
 import click
+from flask import current_app
 from sqlalchemy import func, text
 
 from app.extensions import db
@@ -15,53 +18,20 @@ from app.utils.email import send_verification_email
 registration_schema = RegistrationSchema()
 
 
-
 def show_dashboard(user=None):
-    """Display platform-wide or organizer-specific statistics."""
+    """Display platform-wide statistics."""
+    campaigns = db.session.query(func.count(Campaign.id)).scalar()
+    pledges = db.session.query(func.count(Pledge.id)).scalar()
 
-    if user is None:
-        users = db.session.query(func.count(User.id)).scalar()
-        campaigns = db.session.query(func.count(Campaign.id)).scalar()
-        pledges = db.session.query(func.count(Pledge.id)).scalar()
+    confirmed = db.session.query(
+        func.coalesce(func.sum(Pledge.amount), 0)
+    ).filter(Pledge.status == "confirmed").scalar()
 
-        confirmed = db.session.query(
-            func.coalesce(func.sum(Pledge.amount), 0)
-        ).filter(Pledge.status == "confirmed").scalar()
-
-        click.echo("\n========== PLATFORM STATISTICS ==========")
-        click.echo("Total users:       {}".format(users))
-        click.echo("Total campaigns:   {}".format(campaigns))
-        click.echo("Total pledges:     {}".format(pledges))
-        click.echo("Confirmed amount:  {}".format(confirmed))
-        click.echo("=========================================\n")
-
-    else:
-        campaigns = Campaign.query.filter_by(
-            organizer_id=user.id
-        ).count()
-
-        pledges = db.session.query(
-            func.count(Pledge.id)
-        ).join(
-            Campaign, Pledge.campaign_id == Campaign.id
-        ).filter(
-            Campaign.organizer_id == user.id
-        ).scalar()
-
-        confirmed = db.session.query(
-            func.coalesce(func.sum(Pledge.amount), 0)
-        ).join(
-            Campaign, Pledge.campaign_id == Campaign.id
-        ).filter(
-            Campaign.organizer_id == user.id,
-            Pledge.status == "confirmed"
-        ).scalar()
-
-        click.echo("\n========== MY STATISTICS ==========")
-        click.echo("My campaigns:               {}".format(campaigns))
-        click.echo("My pledges:                 {}".format(pledges))
-        click.echo("Confirmed amount:           {}".format(confirmed))
-        click.echo("===================================\n")
+    click.echo("\n========== HARAMBEE HUB DASHBOARD ==========")
+    click.echo("Total campaigns:   {}".format(campaigns))
+    click.echo("Total pledges:     {}".format(pledges))
+    click.echo("Confirmed amount:  {}".format(confirmed))
+    click.echo("============================================\n")
 
 
 def list_users():
@@ -88,30 +58,38 @@ def list_users():
 
 
 def list_campaigns():
-    """Display campaigns."""
-    campaigns = Campaign.query.order_by(Campaign.id.asc()).limit(20).all()
+    """Display all ongoing campaigns across the platform."""
+    campaigns = Campaign.query.filter_by(
+        status="active"
+    ).order_by(Campaign.id.asc()).all()
 
-    click.echo("\n========== CAMPAIGNS (MAX 20) ==========")
+    click.echo("\n========== ALL ONGOING CAMPAIGNS ==========")
 
     if not campaigns:
-        click.echo("No campaigns found.")
-    else:
-        for campaign in campaigns:
-            click.echo(
-                "ID: {} | Title: {} | Goal: {} | Status: {} | Organizer: {}".format(
-                    campaign.id,
-                    campaign.title,
-                    campaign.goal_amount,
-                    campaign.status,
-                    campaign.organizer_id,
-                )
-            )
+        click.echo("There are currently no ongoing campaigns.")
+        return
 
-    click.echo("=======================================\n")
+    for campaign in campaigns:
+        organizer_name = (
+            campaign.organizer.name if campaign.organizer else "Unknown"
+        )
+
+        click.echo(
+            "ID: {} | Title: {} | Organizer: {} | Goal: {} | Status: {}".format(
+                campaign.id,
+                campaign.title,
+                organizer_name,
+                campaign.goal_amount,
+                campaign.status,
+            )
+        )
+
+    click.echo("Total ongoing campaigns: {}".format(len(campaigns)))
+    click.echo("===========================================\n")
 
 
 def list_pledges():
-    """Display pledges while respecting anonymous contributions."""
+    """Display pledges with contributor names."""
     pledges = Pledge.query.order_by(Pledge.id.asc()).limit(20).all()
 
     click.echo("\n========== PLEDGES (MAX 20) ==========")
@@ -121,9 +99,8 @@ def list_pledges():
     else:
         for pledge in pledges:
             contributor = (
-                "Anonymous"
-                if pledge.is_anonymous
-                else str(pledge.contributor_id or "Guest")
+                pledge.contributor_name
+                or (pledge.contributor.name if pledge.contributor else "Unassigned")
             )
 
             click.echo(
@@ -164,11 +141,25 @@ def signup():
             "Password", hide_input=True, confirmation_prompt=True
         ),
         "phone": click.prompt("Phone (optional)", default="", show_default=False),
-        "role": click.prompt(
-            "Account type",
-            type=click.Choice(["organizer", "contributor"], case_sensitive=False),
-        ).lower(),
+        "role": None,
     }
+
+    while data["role"] is None:
+        role_choice = click.prompt(
+            "Account type (1 = Organizer, 2 = Contributor)"
+        ).strip().lower()
+
+        role_choices = {
+            "1": "organizer",
+            "organizer": "organizer",
+            "2": "contributor",
+            "contributor": "contributor",
+        }
+
+        data["role"] = role_choices.get(role_choice)
+
+        if data["role"] is None:
+            click.echo("Please enter 1, 2, organizer, or contributor.")
 
     if not data["phone"]:
         data.pop("phone")
@@ -230,12 +221,13 @@ def signup():
         click.echo("\nAccount created successfully.")
 
         if email_sent:
-            click.echo("A verification email has been sent to {}.".format(user.email))
+            click.echo("Please verify your email before logging in.")
+        elif current_app.config.get("HARAMBEE_ENV") == "development":
+            user.email_verified = True
+            db.session.commit()
+            click.echo("You can now log in.")
         else:
-            click.echo("Verification email could not be sent.")
-            click.echo("Check your SendGrid configuration.")
-
-        click.echo("You must verify your email before logging in.")
+            click.echo("Please verify your email before logging in.")
 
     except Exception:
         db.session.rollback()
@@ -257,7 +249,7 @@ def login():
         user = User.query.filter_by(email=email).first()
 
         if user is None or not user.check_password(password):
-            click.echo("\nInvalid email or password.")
+            click.echo("\nWrong email or password.")
 
             attempts_left = max_attempts - attempt - 1
 
@@ -272,8 +264,7 @@ def login():
             click.echo("\nPlease verify your email before logging in.")
             return None
 
-        click.echo("\nWelcome, {}!".format(user.name))
-        click.echo("Role: {}".format(user.role))
+        click.echo("\nLogged in successfully.")
 
         return user
 
@@ -281,75 +272,335 @@ def login():
 
 
 
-def admin_menu(user):
-    """Show administrator options."""
-    while True:
-        click.echo("\n========== ADMIN DASHBOARD ==========")
-        click.echo("1. Dashboard statistics")
-        click.echo("2. List users")
-        click.echo("3. List campaigns")
-        click.echo("4. List pledges")
-        click.echo("5. Check database connection")
-        click.echo("6. Logout")
-
-        choice = click.prompt(
-            "Select an option",
-            type=click.Choice(["1", "2", "3", "4", "5", "6"]),
-        )
-
-        if choice == "1":
-            show_dashboard()
-        elif choice == "2":
-            list_users()
-        elif choice == "3":
-            list_campaigns()
-        elif choice == "4":
-            list_pledges()
-        elif choice == "5":
-            check_database()
-        elif choice == "6":
-            click.echo("\nLogged out.")
-            break
-
-
 def organizer_menu(user):
-    """Show organizer options."""
     while True:
         click.echo("\n========== ORGANIZER DASHBOARD ==========")
         click.echo("1. View dashboard statistics")
-        click.echo("2. View campaigns")
-        click.echo("3. Logout")
+        click.echo("2. View all campaigns")
+        click.echo("3. Create a campaign")
+        click.echo("4. Update any campaign")
+        click.echo("5. Delete any campaign")
+        click.echo("6. View campaign pledges")
+        click.echo("7. Cancel a pending pledge")
+        click.echo("8. Confirm a pending pledge")
+        click.echo("9. Logout")
 
-        choice = click.prompt(
-            "Select an option",
-            type=click.Choice(["1", "2", "3"]),
-        )
+        choice = click.prompt("Select an option").strip()
+        if choice not in ["1", "2", "3", "4", "5", "6", "7", "8", "9"]:
+            click.echo("Wrong number. Try again.")
+            continue
 
         if choice == "1":
             show_dashboard(user)
         elif choice == "2":
-            campaigns = Campaign.query.filter_by(
-                organizer_id=user.id
-            ).order_by(Campaign.id.asc()).all()
-
-            click.echo("\n========== MY CAMPAIGNS ==========")
-
-            if not campaigns:
-                click.echo("You have not created any campaigns.")
-            else:
-                for campaign in campaigns:
-                    click.echo(
-                        "ID: {} | Title: {} | Goal: {} | Status: {}".format(
-                            campaign.id,
-                            campaign.title,
-                            campaign.goal_amount,
-                            campaign.status,
-                        )
-                    )
-
+            show_organizer_campaigns(user)
         elif choice == "3":
+            create_organizer_campaign(user)
+        elif choice == "4":
+            update_organizer_campaign(user)
+        elif choice == "5":
+            delete_organizer_campaign(user)
+        elif choice == "6":
+            show_organizer_pledges(user)
+        elif choice == "7":
+            cancel_organizer_pledge(user)
+        elif choice == "8":
+            confirm_organizer_pledge(user)
+        elif choice == "9":
             click.echo("\nLogged out.")
             break
+
+
+def get_organizer_campaign(user, campaign_id):
+    return Campaign.query.filter_by(id=campaign_id).first()
+
+
+def show_organizer_campaigns(user):
+    campaigns = Campaign.query.order_by(Campaign.id.asc()).all()
+
+    click.echo("\n========== ALL CAMPAIGNS ==========")
+    if not campaigns:
+        click.echo("No campaigns found.")
+    for campaign in campaigns:
+        click.echo(
+            "ID: {} | Title: {} | Goal: {} | Status: {}".format(
+                campaign.id, campaign.title,
+                campaign.goal_amount, campaign.status
+            )
+        )
+    return campaigns
+
+
+def create_organizer_campaign(user):
+    click.echo("\n========== CREATE CAMPAIGN ==========")
+    title = click.prompt("Campaign title").strip()
+    description = click.prompt("Description").strip()
+    goal = click.prompt("Goal amount", type=float)
+
+    if len(title) < 3 or len(title) > 150:
+        click.echo("Title must be 3-150 characters.")
+        return
+    if len(description) < 10 or goal <= 0:
+        click.echo("Description must be at least 10 characters and goal must be positive.")
+        return
+
+    try:
+        campaign = Campaign(
+            title=title,
+            description=description,
+            goal_amount=goal,
+            organizer_id=user.id,
+            status="active",
+        )
+        db.session.add(campaign)
+        db.session.commit()
+        click.echo("Campaign created. ID: {}".format(campaign.id))
+    except Exception:
+        db.session.rollback()
+        click.echo("Could not create campaign. Check application logs.")
+
+
+def update_organizer_campaign(user):
+    show_organizer_campaigns(user)
+    campaign_id = click.prompt("Campaign ID to update", type=int)
+    campaign = get_organizer_campaign(user, campaign_id)
+
+    if campaign is None:
+        click.echo("Campaign not found.")
+        return
+
+    title = click.prompt("Title", default=campaign.title).strip()
+    description = click.prompt("Description", default=campaign.description).strip()
+    goal = click.prompt("Goal amount", default=float(campaign.goal_amount), type=float)
+
+    if len(title) < 3 or len(title) > 150 or len(description) < 10 or goal <= 0:
+        click.echo("Invalid campaign details.")
+        return
+
+    try:
+        campaign.title = title
+        campaign.description = description
+        campaign.goal_amount = goal
+        db.session.commit()
+        click.echo("Campaign updated.")
+    except Exception:
+        db.session.rollback()
+        click.echo("Could not update campaign. Check application logs.")
+
+
+def delete_organizer_campaign(user):
+    show_organizer_campaigns(user)
+    campaign_id = click.prompt("Campaign ID to delete", type=int)
+    campaign = get_organizer_campaign(user, campaign_id)
+
+    if campaign is None:
+        click.echo("Campaign not found.")
+        return
+
+    if Pledge.query.filter_by(campaign_id=campaign.id).first():
+        click.echo("Cannot delete: this campaign has pledge history.")
+        return
+
+    if not click.confirm("Delete this campaign?", default=False):
+        click.echo("Deletion cancelled.")
+        return
+
+    try:
+        db.session.delete(campaign)
+        db.session.commit()
+        click.echo("Campaign deleted.")
+    except Exception:
+        db.session.rollback()
+        click.echo("Could not delete campaign. Check application logs.")
+
+
+def show_organizer_pledges(user):
+    campaign_id = click.prompt("Campaign ID", type=int)
+    campaign = get_organizer_campaign(user, campaign_id)
+
+    if campaign is None:
+        click.echo("Campaign not found.")
+        return
+
+    pledges = Pledge.query.filter_by(
+        campaign_id=campaign.id
+    ).order_by(Pledge.id.asc()).all()
+
+    click.echo("\n========== CAMPAIGN PLEDGES ==========")
+    if not pledges:
+        click.echo("No pledges found.")
+    for pledge in pledges:
+        contributor = (
+            pledge.contributor_name
+            or (pledge.contributor.name if pledge.contributor else "Unassigned")
+        )
+
+        click.echo(
+            "ID: {} | Amount: {} | Status: {} | Contributor: {}".format(
+                pledge.id, pledge.amount, pledge.status, contributor
+            )
+        )
+
+
+def cancel_organizer_pledge(user):
+    campaign_id = click.prompt("Campaign ID", type=int)
+    campaign = get_organizer_campaign(user, campaign_id)
+
+    if campaign is None:
+        click.echo("Campaign not found.")
+        return
+
+    pledges = Pledge.query.filter_by(
+        campaign_id=campaign.id
+    ).order_by(Pledge.id.asc()).all()
+
+    if not pledges:
+        click.echo("No pledges found.")
+        return
+
+    for pledge in pledges:
+        click.echo(
+            "ID: {} | Amount: {} | Status: {}".format(
+                pledge.id, pledge.amount, pledge.status
+            )
+        )
+
+    pledge_id = click.prompt("Pledge ID to cancel", type=int)
+    pledge = Pledge.query.filter_by(
+        id=pledge_id, campaign_id=campaign.id
+    ).first()
+
+    if pledge is None:
+        click.echo("Pledge not found in this campaign.")
+        return
+    if pledge.status != "pending":
+        click.echo("Only pending pledges can be cancelled.")
+        return
+    if not click.confirm("Cancel this pledge?", default=False):
+        click.echo("Cancellation aborted.")
+        return
+
+    try:
+        pledge.status = "cancelled"
+        db.session.commit()
+        click.echo("Pledge cancelled. History preserved.")
+    except Exception:
+        db.session.rollback()
+        click.echo("Could not cancel pledge. Check application logs.")
+
+
+
+def confirm_organizer_pledge(user):
+    pledges = Pledge.query.filter_by(
+        status="pending"
+    ).order_by(Pledge.id.asc()).all()
+
+    click.echo("\n========== PENDING PLEDGES ==========")
+
+    if not pledges:
+        click.echo("No pending pledges found.")
+        return
+
+    for pledge in pledges:
+        campaign = pledge.campaign
+        title = campaign.title if campaign else "Unknown campaign"
+
+        contributor = (
+            pledge.contributor_name
+            or (pledge.contributor.name if pledge.contributor else "Unassigned")
+        )
+
+        click.echo(
+            "ID: {} | Campaign: {} | Amount: {} | Contributor: {}".format(
+                pledge.id, title, pledge.amount, contributor
+            )
+        )
+
+    pledge_id = click.prompt("Pledge ID to confirm", type=int)
+    pledge = db.session.get(Pledge, pledge_id)
+
+    if pledge is None or pledge.status != "pending":
+        click.echo("Pending pledge not found.")
+        return
+
+    if not click.confirm("Confirm this pledge?", default=False):
+        click.echo("Confirmation cancelled.")
+        return
+
+    try:
+        pledge.status = "confirmed"
+        pledge.confirmed_at = datetime.now(timezone.utc)
+        db.session.commit()
+        click.echo("Pledge confirmed.")
+    except Exception:
+        db.session.rollback()
+        click.echo("Could not confirm pledge. Check application logs.")
+
+def create_contributor_pledge(user):
+    """Allow a contributor to pledge to an active campaign."""
+    campaigns = Campaign.query.filter_by(
+        status="active"
+    ).order_by(Campaign.id.asc()).all()
+
+    click.echo("\n========== ACTIVE CAMPAIGNS ==========")
+
+    if not campaigns:
+        click.echo("There are no active campaigns available.")
+        return
+
+    for campaign in campaigns:
+        click.echo(
+            "ID: {} | {} | Goal: {}".format(
+                campaign.id,
+                campaign.title,
+                campaign.goal_amount,
+            )
+        )
+
+    campaign_id = click.prompt("Enter the campaign ID", type=int)
+
+    campaign = Campaign.query.filter_by(
+        id=campaign_id,
+        status="active",
+    ).first()
+
+    if campaign is None:
+        click.echo("Invalid campaign ID or campaign is not active.")
+        return
+
+    amount = click.prompt(
+        "Pledge amount",
+        type=click.FloatRange(min=1, max=10_000_000),
+    )
+
+    message = click.prompt(
+        "Message (optional)",
+        default="",
+        show_default=False,
+    ).strip()
+
+    if len(message) > 500:
+        click.echo("Message cannot exceed 500 characters.")
+        return
+
+    pledge = Pledge(
+        campaign_id=campaign.id,
+        contributor_id=user.id,
+        amount=Decimal(str(amount)),
+        message=message or None,
+    )
+
+    try:
+        db.session.add(pledge)
+        db.session.commit()
+        click.echo("\nPledge created successfully.")
+        click.echo("Pledge ID: {}".format(pledge.id))
+        click.echo("Campaign: {}".format(campaign.title))
+        click.echo("Amount: {}".format(pledge.amount))
+        click.echo("Status: {}".format(pledge.status))
+    except Exception:
+        db.session.rollback()
+        click.echo("Could not create the pledge. Please try again.")
 
 
 def contributor_menu(user):
@@ -357,18 +608,22 @@ def contributor_menu(user):
     while True:
         click.echo("\n========== CONTRIBUTOR DASHBOARD ==========")
         click.echo("1. View campaigns")
-        click.echo("2. View my pledges")
-        click.echo("3. Logout")
+        click.echo("2. Create a pledge")
+        click.echo("3. View my pledges")
+        click.echo("4. Logout")
 
-        choice = click.prompt(
-            "Select an option",
-            type=click.Choice(["1", "2", "3"]),
-        )
+        choice = click.prompt("Select an option").strip()
+        if choice not in ["1", "2", "3", "4"]:
+            click.echo("Wrong number. Try again.")
+            continue
 
         if choice == "1":
             list_campaigns()
 
         elif choice == "2":
+            create_contributor_pledge(user)
+
+        elif choice == "3":
             pledges = Pledge.query.filter_by(
                 contributor_id=user.id
             ).order_by(Pledge.id.asc()).all()
@@ -388,7 +643,7 @@ def contributor_menu(user):
                         )
                     )
 
-        elif choice == "3":
+        elif choice == "4":
             click.echo("\nLogged out.")
             break
 
@@ -405,10 +660,10 @@ def hub_cli():
         click.echo("2. Login")
         click.echo("3. Exit")
 
-        choice = click.prompt(
-            "Select an option",
-            type=click.Choice(["1", "2", "3"]),
-        )
+        choice = click.prompt("Select an option").strip()
+        if choice not in ["1", "2", "3"]:
+            click.echo("Wrong number. Try again.")
+            continue
 
         if choice == "1":
             signup()
@@ -419,9 +674,7 @@ def hub_cli():
             if user is None:
                 continue
 
-            if user.role == "admin":
-                admin_menu(user)
-            elif user.role == "organizer":
+            if user.role == "organizer":
                 organizer_menu(user)
             elif user.role == "contributor":
                 contributor_menu(user)

@@ -184,3 +184,128 @@ def test_list_campaigns_rejects_invalid_page(client):
 
     assert response.status_code == 422
     assert "error" in response.json
+
+
+def test_organizer_can_update_own_campaign(client, make_user, auth_header):
+    organizer = make_user(role="organizer")
+    campaign = Campaign(
+        title="Old Campaign",
+        description="This is the original campaign description.",
+        goal_amount=50000,
+        organizer_id=organizer.id,
+    )
+    db.session.add(campaign)
+    db.session.commit()
+
+    response = client.patch(
+        "/api/campaigns/{}".format(campaign.id),
+        headers=auth_header(organizer),
+        json={"title": "Updated Campaign"},
+    )
+
+    assert response.status_code == 200
+    assert response.json["title"] == "Updated Campaign"
+
+
+def test_organizer_can_update_another_organizers_campaign(
+    client, make_user, auth_header
+):
+    owner = make_user(role="organizer")
+    other_organizer = make_user(role="organizer")
+
+    campaign = Campaign(
+        title="Owner Campaign",
+        description="This campaign belongs to another organizer.",
+        goal_amount=50000,
+        organizer_id=owner.id,
+    )
+    db.session.add(campaign)
+    db.session.commit()
+
+    response = client.patch(
+        "/api/campaigns/{}".format(campaign.id),
+        headers=auth_header(other_organizer),
+        json={"title": "Unauthorized Change"},
+    )
+
+    assert response.status_code == 200
+    assert campaign.title == "Unauthorized Change"
+
+
+def test_organizer_can_delete_own_campaign_without_pledges(
+    client, make_user, auth_header
+):
+    organizer = make_user(role="organizer")
+    campaign = Campaign(
+        title="Campaign to Delete",
+        description="This campaign has no pledge records.",
+        goal_amount=50000,
+        organizer_id=organizer.id,
+    )
+    db.session.add(campaign)
+    db.session.commit()
+
+    response = client.delete(
+        "/api/campaigns/{}".format(campaign.id),
+        headers=auth_header(organizer),
+    )
+
+    assert response.status_code == 200
+    assert db.session.get(Campaign, campaign.id) is None
+
+
+def test_organizer_can_delete_another_organizers_campaign(
+    client, make_user, auth_header
+):
+    owner = make_user(role="organizer")
+    other_organizer = make_user(role="organizer")
+
+    campaign = Campaign(
+        title="Owner Campaign",
+        description="This campaign belongs to another organizer.",
+        goal_amount=50000,
+        organizer_id=owner.id,
+    )
+    db.session.add(campaign)
+    db.session.commit()
+
+    response = client.delete(
+        "/api/campaigns/{}".format(campaign.id),
+        headers=auth_header(other_organizer),
+    )
+
+    assert response.status_code == 200
+    assert db.session.get(Campaign, campaign.id) is None
+
+
+def test_campaign_with_pledge_history_cannot_be_deleted(
+    client, make_user, auth_header
+):
+    from app.models.pledge import Pledge
+
+    organizer = make_user(role="organizer")
+    campaign = Campaign(
+        title="Fundraiser with Pledge",
+        description="This campaign already has a pledge record.",
+        goal_amount=50000,
+        organizer_id=organizer.id,
+    )
+    db.session.add(campaign)
+    db.session.flush()
+
+    pledge = Pledge(
+        campaign_id=campaign.id,
+        amount=1000,
+        status="pending",
+    )
+    db.session.add(pledge)
+    db.session.commit()
+
+    response = client.delete(
+        "/api/campaigns/{}".format(campaign.id),
+        headers=auth_header(organizer),
+    )
+
+    assert response.status_code == 409
+    assert db.session.get(Campaign, campaign.id) is not None
+    assert db.session.get(Pledge, pledge.id) is not None

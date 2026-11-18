@@ -36,7 +36,7 @@ def test_login_never_returns_the_password_or_hash(client, make_user):
     assert "password_hash" not in user
 
 
-@pytest.mark.parametrize("role", ["organizer", "contributor", "admin"])
+@pytest.mark.parametrize("role", ["organizer", "contributor"])
 def test_login_token_contains_the_role_claim(client, make_user, role):
     make_user(role=role, email=EMAIL, password=PASSWORD)
     token = login(client).get_json()["token"]

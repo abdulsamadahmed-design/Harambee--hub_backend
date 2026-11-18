@@ -16,7 +16,7 @@ def guarded_client(app):
         return jsonify({"ok": True})
 
     @app.get("/_test/staff")
-    @roles_required("organizer", "admin")
+    @roles_required("organizer")
     def staff_only():
         return jsonify({"ok": True})
 
@@ -60,7 +60,7 @@ def test_right_role_returns_200(guarded_client, make_user, auth_header):
     assert response.get_json() == {"ok": True}
 
 
-@pytest.mark.parametrize("role", ["organizer", "admin"])
+@pytest.mark.parametrize("role", ["organizer"])
 def test_any_of_several_allowed_roles_passes(guarded_client, make_user, auth_header, role):
     user = make_user(role=role)
     response = guarded_client.get("/_test/staff", headers=auth_header(user))

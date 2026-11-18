@@ -127,21 +127,31 @@ def test_closed_or_missing_campaign_rejected(client, app):
 @pytest.mark.skipif(
     not CAMPAIGN_AVAILABLE, reason="campaign.py not merged yet (M3)"
 )
-def test_anonymous_identity_hidden_public_and_visible_to_organizer(client, app):
+def test_contributor_full_name_visible_in_public_and_organizer_pledge_lists(client, app):
     organizer_id = _make_user(app, "organizer@example.com", "organizer")
     contributor_id = _make_user(app, "contributor@example.com")
     campaign_id = _make_campaign(app, organizer_id)
-    _create_pledge(client, app, campaign_id, contributor_id, is_anonymous=True)
 
-    public = client.get(f"/api/pledges/campaign/{campaign_id}").get_json()
-    assert public["items"][0]["contributor"] is None
+    created = _create_pledge(
+        client, app, campaign_id, contributor_id
+    )
+    assert created.status_code == 201
+
+    public = client.get(f"/api/pledges/campaign/{campaign_id}")
+    assert public.status_code == 200
+    public_pledge = public.get_json()["items"][0]
+    assert public_pledge["contributor"]["id"] == contributor_id
+    assert public_pledge["contributor"]["name"] == "contributor"
+    assert "is_anonymous" not in public_pledge
 
     managed = client.get(
         f"/api/pledges/campaign/{campaign_id}/manage",
         headers=_headers(app, organizer_id),
     )
     assert managed.status_code == 200
-    assert managed.get_json()["items"][0]["contributor"]["id"] == contributor_id
+    managed_pledge = managed.get_json()["items"][0]
+    assert managed_pledge["contributor"]["name"] == "contributor"
+    assert "is_anonymous" not in managed_pledge
 
 
 @pytest.mark.skipif(
@@ -377,3 +387,98 @@ def test_pledge_lists_reject_invalid_page(client, app):
     assert public_response.status_code == 422
     assert mine_response.status_code == 422
     assert manage_response.status_code == 422
+
+
+@pytest.mark.skipif(
+    not CAMPAIGN_AVAILABLE, reason="campaign.py not merged yet (M3)"
+)
+@pytest.mark.parametrize("role", ["organizer", "contributor"])
+def test_pledge_management_creation_endpoint_is_removed(
+    client, app, role
+):
+    user_id = _make_user(app, f"{role}@example.com", role)
+    response = client.post(
+        "/api/pledges/campaign/1/manage",
+        json={"amount": 1000},
+        headers=_headers(app, user_id),
+    )
+
+    assert response.status_code == 405
+
+
+@pytest.mark.skipif(
+    not CAMPAIGN_AVAILABLE, reason="campaign.py not merged yet (M3)"
+)
+def test_organizer_can_cancel_pending_pledge_on_own_campaign(
+    client, app
+):
+    from app.models.pledge import Pledge
+
+    organizer_id = _make_user(app, "owner@example.com", "organizer")
+    contributor_id = _make_user(app, "supporter@example.com")
+    campaign_id = _make_campaign(app, organizer_id)
+
+    created = _create_pledge(client, app, campaign_id, contributor_id)
+    pledge_id = created.json["pledge"]["id"]
+
+    response = client.delete(
+        f"/api/pledges/{pledge_id}",
+        headers=_headers(app, organizer_id),
+    )
+
+    assert response.status_code == 200
+
+    with app.app_context():
+        pledge = db.session.get(Pledge, pledge_id)
+        assert pledge.status == "cancelled"
+
+
+@pytest.mark.skipif(
+    not CAMPAIGN_AVAILABLE, reason="campaign.py not merged yet (M3)"
+)
+def test_other_organizer_can_cancel_pledge(client, app):
+    organizer_id = _make_user(app, "owner@example.com", "organizer")
+    other_id = _make_user(app, "other@example.com", "organizer")
+    contributor_id = _make_user(app, "supporter@example.com")
+    campaign_id = _make_campaign(app, organizer_id)
+
+    created = _create_pledge(client, app, campaign_id, contributor_id)
+    pledge_id = created.json["pledge"]["id"]
+
+    response = client.delete(
+        f"/api/pledges/{pledge_id}",
+        headers=_headers(app, other_id),
+    )
+
+    assert response.status_code == 200
+
+    from app.models.pledge import Pledge
+
+    with app.app_context():
+        pledge = db.session.get(Pledge, pledge_id)
+        assert pledge.status == "cancelled"
+
+
+@pytest.mark.skipif(
+    not CAMPAIGN_AVAILABLE, reason="campaign.py not merged yet (M3)"
+)
+def test_organizer_cannot_cancel_confirmed_pledge(client, app):
+    organizer_id = _make_user(app, "owner@example.com", "organizer")
+    contributor_id = _make_user(app, "supporter@example.com")
+    campaign_id = _make_campaign(app, organizer_id)
+
+    created = _create_pledge(client, app, campaign_id, contributor_id)
+    pledge_id = created.json["pledge"]["id"]
+
+    confirmed = client.post(
+        f"/api/pledges/{pledge_id}/confirm",
+        headers=_headers(app, organizer_id),
+    )
+    assert confirmed.status_code == 200
+
+    cancelled = client.delete(
+        f"/api/pledges/{pledge_id}",
+        headers=_headers(app, organizer_id),
+    )
+
+    assert cancelled.status_code == 409

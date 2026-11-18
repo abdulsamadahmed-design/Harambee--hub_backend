@@ -61,7 +61,7 @@ def dashboard_stats():
 
     total_pledged = db.session.query(
         func.coalesce(func.sum(Pledge.amount), 0)
-    ).scalar()
+    ).filter(Pledge.status.in_(["pending", "confirmed"])).scalar()
 
     total_confirmed = db.session.query(
         func.coalesce(func.sum(Pledge.amount), 0)

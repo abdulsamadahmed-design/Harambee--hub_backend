@@ -3,7 +3,6 @@ import os
 import click
 
 from flask import Flask
-import pytest
 from app.config import Config
 from app.extensions import db, jwt, cors, migrate
 from app.utils.errors import register_error_handlers

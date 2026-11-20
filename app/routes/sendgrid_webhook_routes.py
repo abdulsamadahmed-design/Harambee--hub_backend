@@ -61,7 +61,6 @@ def receive_events():
         )
         return jsonify({"error": "Invalid webhook signature"}), 401
 
-        return jsonify({"error": "Invalid webhook signature"}), 401
 
     if not valid_signature:
         return jsonify({"error": "Invalid webhook signature"}), 401

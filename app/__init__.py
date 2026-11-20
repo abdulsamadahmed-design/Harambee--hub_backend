@@ -40,6 +40,8 @@ def create_app():
     from app.routes.admin_routes import admin_bp
     from app.routes.campaign_routes import campaign_bp
     from app.routes.health_routes import health_bp
+    from app.routes.sendgrid_webhook_routes import sendgrid_webhook_bp
+
     from app.routes.docs_routes import docs_bp, swaggerui_blueprint
 
 
@@ -49,6 +51,7 @@ def create_app():
     app.register_blueprint(pledge_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(campaign_bp)
+    app.register_blueprint(sendgrid_webhook_bp)
     app.register_blueprint(docs_bp)
     app.register_blueprint(swaggerui_blueprint)
 

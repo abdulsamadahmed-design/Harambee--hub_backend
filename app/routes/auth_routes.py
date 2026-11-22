@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import (
     create_access_token,
+    create_refresh_token,
     jwt_required,
     get_jwt_identity,
 )
@@ -41,11 +42,34 @@ def login():
         additional_claims={"role": user.role}
     )
 
+    refresh_token = create_refresh_token(
+        identity=str(user.id),
+    )
+
+
     return jsonify({
         "token": token,
+        "refresh_token": refresh_token,
         "user": user.to_dict()
     }), 200
 
+@auth_bp.post("/refresh")
+@jwt_required(refresh=True)
+def refresh():
+    user_id = get_jwt_identity()
+    user = db.session.get(User, int(user_id))
+
+    if not user:
+        return error_response("User not found", 404)
+
+    new_token = create_access_token(
+        identity=str(user.id),
+        additional_claims={"role": user.role}
+    )
+
+    return jsonify({
+        "token": new_token
+    }), 200
 
 @auth_bp.get("/me")
 @jwt_required()

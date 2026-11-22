@@ -1,5 +1,5 @@
 
-from marshmallow import Schema, fields, validate
+from marshmallow import Schema, fields, validate, pre_load
 
 
 class RegistrationSchema(Schema):
@@ -32,3 +32,15 @@ class RegistrationSchema(Schema):
         required=True,
         validate=validate.OneOf(["organizer", "contributor"])
     )
+
+class ResendVerificationSchema(Schema):
+    email = fields.Email(
+        required=True,
+        validate=validate.Length(max=120)
+    )
+
+    @pre_load
+    def normalize_email(self, data, **kwargs):
+        if isinstance(data, dict) and isinstance(data.get("email"), str):
+            data = {**data, "email": data["email"].strip().lower()}
+        return data

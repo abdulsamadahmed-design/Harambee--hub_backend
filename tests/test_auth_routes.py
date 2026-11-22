@@ -42,6 +42,42 @@ def test_login_token_contains_the_role_claim(client, make_user, role):
     token = login(client).get_json()["token"]
     assert decode_token(token)["role"] == role
 
+def test_login_returns_refresh_token(client, make_user):
+    user = make_user(role="organizer", email=EMAIL)
+
+    response = login(client)
+
+    assert response.status_code == 200
+
+    refresh_token = response.get_json()["refresh_token"]
+    decoded = decode_token(refresh_token)
+
+    assert decoded["type"] == "refresh"
+    assert decoded["sub"] == str(user.id)
+
+
+def test_refresh_returns_new_access_token(client, make_user):
+    user = make_user(role="organizer", email=EMAIL)
+
+    login_response = login(client)
+    refresh_token = login_response.get_json()["refresh_token"]
+
+    response = client.post(
+        "/api/auth/refresh",
+        headers={
+            "Authorization": f"Bearer {refresh_token}"
+        }
+    )
+
+    assert response.status_code == 200
+
+    new_token = response.get_json()["token"]
+    decoded = decode_token(new_token)
+
+    assert decoded["type"] == "access"
+    assert decoded["sub"] == str(user.id)
+    assert decoded["role"] == "organizer"
+
 
 def test_login_email_is_case_and_space_insensitive(client, make_user):
     make_user(email=EMAIL, password=PASSWORD)

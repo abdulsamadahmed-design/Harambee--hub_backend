@@ -12,6 +12,7 @@ class User(db.Model):
     role = db.Column(db.String(20))
     email_verified = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    last_verification_sent_at = db.Column(db.DateTime(timezone=True),nullable=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

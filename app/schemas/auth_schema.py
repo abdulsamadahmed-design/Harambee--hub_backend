@@ -52,3 +52,37 @@ class LoginSchema(Schema):
         if isinstance(data, dict) and isinstance(data.get("email"), str):
             data = {**data, "email": data["email"].strip().lower()}
         return data
+
+class PasswordResetSchema(Schema):
+    """Validates a password recovery request."""
+
+    class Meta:
+        unknown = EXCLUDE
+
+    email = fields.Email(
+        required=True,
+        error_messages={
+            "required": "Email is required.",
+            "invalid": "Enter a valid email address.",
+        },
+    )
+
+    code = fields.Str(
+        required=True,
+        validate=validate.Length(min=1, max=128),
+    )
+
+    new_password = fields.Str(
+        required=True,
+        validate=validate.Length(
+            min=8,
+            max=128,
+            error="Password must be between 8 and 128 characters.",
+        ),
+    )
+
+    @pre_load
+    def clean_email(self, data, **kwargs):
+        if isinstance(data, dict) and isinstance(data.get("email"), str):
+            data = {**data, "email": data["email"].strip().lower()}
+        return data

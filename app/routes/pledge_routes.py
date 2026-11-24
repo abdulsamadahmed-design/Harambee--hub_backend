@@ -62,6 +62,13 @@ def _error(message, code=400, details=None):
 def _get_campaign(campaign_id):
     return db.session.get(Campaign, campaign_id)
 
+def _owns_campaign(campaign, user):
+    return (
+        campaign is not None
+        and user.role == "organizer"
+        and campaign.organizer_id == user.id
+    )
+
 
 def _raised_for(campaign_id):
     total = db.session.scalar(
@@ -92,6 +99,44 @@ def _pagination_data(pagination):
         "pages": pagination["pages"],
     }
 
+@pledge_bp.get("/")
+@_require_user
+def organizer_list_pledges():
+    if Campaign is None:
+        return _error("Campaign module not available yet", 503)
+
+    if g.user.role != "organizer":
+        return _error("Forbidden", 403)
+
+    try:
+        query_data = pledge_query_schema.load(request.args.to_dict())
+    except ValidationError as error:
+        return _error("Invalid query", 422, error.messages)
+
+    query = (
+        Pledge.query
+        .join(Campaign, Pledge.campaign_id == Campaign.id)
+        .filter(Campaign.organizer_id == g.user.id)
+    )
+
+    if query_data.get("status"):
+        query = query.filter(Pledge.status == query_data["status"])
+
+    pagination = paginate_query(query.order_by(Pledge.created_at.desc()))
+
+    items = []
+    for pledge in pagination["items"]:
+        item = pledge.to_dict(viewer=g.user)
+        item["campaign"] = {
+            "id": pledge.campaign_id,
+            "title": pledge.campaign.title if pledge.campaign else "Campaign",
+        }
+        items.append(item)
+
+    return jsonify({
+        **_pagination_data(pagination),
+        "items": items,
+    }), 200
 
 @pledge_bp.get("/campaign/<int:campaign_id>")
 def list_campaign_pledges(campaign_id):
@@ -219,11 +264,11 @@ def cancel_pledge(pledge_id):
     pledge = db.session.get(Pledge, pledge_id)
     if pledge is None:
         return _error("Pledge not found", 404)
-    if not (
-        pledge.contributor_id == g.user.id
-        or g.user.role == "organizer"
-    ):
-        return _error("Forbidden", 403)
+    campaign = _get_campaign(pledge.campaign_id)
+    is_owner = _owns_campaign(campaign, g.user)
+
+    if pledge.contributor_id != g.user.id and not is_owner:
+     return _error("Forbidden", 403)
 
     if pledge.status != "pending":
         return _error("Only pending pledges can be cancelled", 409)
@@ -242,8 +287,13 @@ def confirm_pledge(pledge_id):
     if Campaign is None:
         return _error("Campaign module not available yet", 503)
 
-    if g.user.role != "organizer":
-        return _error("Forbidden", 403)
+    campaign = _get_campaign(pledge.campaign_id)
+
+    if campaign is None:
+        return _error("Campaign not found", 404)
+
+    if not _owns_campaign(campaign, g.user):
+         return _error("Forbidden", 403)
     if pledge.status != "pending":
         return _error("Only pending pledges can be confirmed", 409)
 
@@ -267,7 +317,7 @@ def organizer_manage_view(campaign_id):
     campaign = _get_campaign(campaign_id)
     if campaign is None:
         return _error("Campaign not found", 404)
-    if g.user.role != "organizer":
+    if not _owns_campaign(campaign, g.user):
         return _error("Forbidden", 403)
 
     try:
@@ -303,7 +353,8 @@ def remind_pledge(pledge_id):
     if pledge is None:
         return _error("Pledge not found", 404)
     campaign = getattr(pledge, "campaign", None)
-    if campaign is None or g.user.role != "organizer":
+
+    if campaign is None or not _owns_campaign(campaign, g.user):
         return _error("Forbidden", 403)
     if pledge.contributor is None or not getattr(pledge.contributor, "email", None):
         return _error("Contributor email not available", 400)
@@ -321,7 +372,7 @@ def remind_pledge(pledge_id):
 
 
 def _can_view(pledge, user):
-    return (
-        pledge.contributor_id == user.id
-        or user.role == "organizer"
-    )
+   return (
+    pledge.contributor_id == user.id
+    or _owns_campaign(pledge.campaign, user)
+)

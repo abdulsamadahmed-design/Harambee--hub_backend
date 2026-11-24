@@ -436,7 +436,7 @@ def test_organizer_can_cancel_pending_pledge_on_own_campaign(
 @pytest.mark.skipif(
     not CAMPAIGN_AVAILABLE, reason="campaign.py not merged yet (M3)"
 )
-def test_other_organizer_can_cancel_pledge(client, app):
+def test_other_organizer_cannot_cancel_pledge(client, app):
     organizer_id = _make_user(app, "owner@example.com", "organizer")
     other_id = _make_user(app, "other@example.com", "organizer")
     contributor_id = _make_user(app, "supporter@example.com")
@@ -450,13 +450,13 @@ def test_other_organizer_can_cancel_pledge(client, app):
         headers=_headers(app, other_id),
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 403
 
     from app.models.pledge import Pledge
 
     with app.app_context():
         pledge = db.session.get(Pledge, pledge_id)
-        assert pledge.status == "cancelled"
+        assert pledge.status == "pending"
 
 
 @pytest.mark.skipif(
@@ -482,3 +482,64 @@ def test_organizer_cannot_cancel_confirmed_pledge(client, app):
     )
 
     assert cancelled.status_code == 409
+
+@pytest.mark.skipif(
+    not CAMPAIGN_AVAILABLE,
+    reason="campaign.py not merged yet (M3)",
+)
+def test_organizer_pledges_only_show_own_campaigns(client, app):
+    organizer_id = _make_user(app, "owner@example.com", "organizer")
+    other_id = _make_user(app, "other@example.com", "organizer")
+    contributor_id = _make_user(app, "supporter@example.com")
+
+    own_campaign = _make_campaign(app, organizer_id)
+    other_campaign = _make_campaign(app, other_id)
+
+    own_pledge = _create_pledge(
+        client, app, own_campaign, contributor_id
+    )
+    other_pledge = _create_pledge(
+        client, app, other_campaign, contributor_id
+    )
+
+    response = client.get(
+        "/api/pledges/",
+        headers=_headers(app, organizer_id),
+    )
+
+    assert response.status_code == 200
+
+    data = response.get_json()
+
+    assert data["total"] == 1
+    assert data["items"][0]["id"] == own_pledge.json["pledge"]["id"]
+    assert data["items"][0]["id"] != other_pledge.json["pledge"]["id"]
+    assert data["items"][0]["campaign"]["id"] == own_campaign
+
+@pytest.mark.skipif(
+    not CAMPAIGN_AVAILABLE,
+    reason="campaign.py not merged yet (M3)",
+)
+def test_other_organizer_cannot_view_manage_or_confirm_pledge(client, app):
+    owner_id = _make_user(app, "owner@example.com", "organizer")
+    other_id = _make_user(app, "other@example.com", "organizer")
+    contributor_id = _make_user(app, "supporter@example.com")
+
+    campaign_id = _make_campaign(app, owner_id)
+    created = _create_pledge(client, app, campaign_id, contributor_id)
+    pledge_id = created.json["pledge"]["id"]
+    headers = _headers(app, other_id)
+
+    view_response = client.get(
+        f"/api/pledges/{pledge_id}", headers=headers
+    )
+    manage_response = client.get(
+        f"/api/pledges/campaign/{campaign_id}/manage", headers=headers
+    )
+    confirm_response = client.post(
+        f"/api/pledges/{pledge_id}/confirm", headers=headers
+    )
+
+    assert view_response.status_code == 403
+    assert manage_response.status_code == 403
+    assert confirm_response.status_code == 403

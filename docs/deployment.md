@@ -1,24 +1,22 @@
-# Deployment guide (backend)
+# Backend Deployment Guide
 
 The brief asks for the frontend and the backend on different platforms. This guide deploys the API to Render with a PostgreSQL database. Put the React frontend on Netlify or Vercel.
 
 SQLite is fine for local development but is wiped on most free hosts, so production needs PostgreSQL.
 
-## 1. Changes to the code (small PRs, owners in brackets)
+## 1. Deployment requirements
 
-1. **`requirements.txt`** [Scrum master, one PR]: add two lines.
-   - `gunicorn` is the production web server. Flask's built-in server is for development only.
-   - `psycopg2-binary` lets SQLAlchemy talk to PostgreSQL.
-2. **`app/config.py`** [M6]: some hosts give a database address starting with `postgres://`, but SQLAlchemy needs `postgresql://`. Convert it:
-   ```python
-   db_url = os.getenv("DATABASE_URL", "sqlite:///harambee.db")
-   if db_url.startswith("postgres://"):
-       db_url = db_url.replace("postgres://", "postgresql://", 1)
-   SQLALCHEMY_DATABASE_URI = db_url
-   ```
-3. **CORS** [M6]: allow only the deployed frontend, not every website. Read `FRONTEND_URL` from the environment and pass it to Flask-CORS as the allowed origin.
-4. **`run.py`** must expose a module-level variable called `app` (`app = create_app()`), because the start command is `gunicorn run:app`.
-5. **A health route** at `/api/health` that returns a small JSON message, so you can check the deployed service is alive.
+The backend already includes:
+
+- Gunicorn as the production web server.
+- Psycopg 3 as the PostgreSQL driver.
+- PostgreSQL URL conversion in `app/config.py`.
+- CORS configuration through `FRONTEND_URL`.
+- A module-level `app` in `run.py`.
+- A health endpoint at `/api/health`.
+- Database migrations managed by Flask-Migrate.
+
+No additional deployment dependencies need to be installed.
 
 ## 2. Create the services on Render
 
@@ -38,11 +36,10 @@ SQLite is fine for local development but is wiped on most free hosts, so product
    | `FRONTEND_URL` | the deployed frontend address |
    | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL` | SendGrid credentials for email delivery |
    | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Cloudinary credentials for image uploads |
-   | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Set these temporarily or as needed when creating the initial admin account |
+   | `ORGANIZER_EMAIL`, `ORGANIZER_PASSWORD` | Used when creating the initial organizer account |
 
-   The Blueprint does not define the SendGrid, Cloudinary, or admin variables. Add the required values manually in the Render dashboard. Keep real credentials out of the repository.
+   The Blueprint does not define the SendGrid, Cloudinary, or organizer variables. Add the required values manually in the Render dashboard. Keep real credentials out of the repository.
 
-   If the build fails on the Python version, set a `PYTHON_VERSION` variable to match the one you use locally.
 4. Deploy, then open `https://<your-service>.onrender.com/api/health`.
 
 Free instances go to sleep when idle, so the first request after a pause can take about a minute. Warm it up before a demo.
@@ -60,5 +57,5 @@ Nothing reaches production until the Scrum master merges `develop` into `main`.
 - [ ] `/api/health` answers on the deployed URL
 - [ ] Register and login work from the deployed frontend (no CORS error in the browser console)
 - [ ] The database has the tables (the start command ran `db upgrade`)
-- [ ] An admin account exists (set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in Render environment variables, then run `flask --app run seed-admin` once from the Render shell)
+- [ ] The initial organizer account exists (set `ORGANIZER_EMAIL` and `ORGANIZER_PASSWORD`, then run `flask --app run seed-organizer` in the Render Shell)
 - [ ] No secrets in the repository, and `.env` is not committed

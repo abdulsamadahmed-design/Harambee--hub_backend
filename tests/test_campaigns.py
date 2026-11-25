@@ -207,7 +207,7 @@ def test_organizer_can_update_own_campaign(client, make_user, auth_header):
     assert response.json["title"] == "Updated Campaign"
 
 
-def test_organizer_can_update_another_organizers_campaign(
+def test_organizer_cannot_update_another_organizers_campaign(
     client, make_user, auth_header
 ):
     owner = make_user(role="organizer")
@@ -228,8 +228,9 @@ def test_organizer_can_update_another_organizers_campaign(
         json={"title": "Unauthorized Change"},
     )
 
-    assert response.status_code == 200
-    assert campaign.title == "Unauthorized Change"
+    assert response.status_code == 403
+    db.session.refresh(campaign)
+    assert campaign.title == "Owner Campaign"
 
 
 def test_organizer_can_delete_own_campaign_without_pledges(
@@ -254,7 +255,7 @@ def test_organizer_can_delete_own_campaign_without_pledges(
     assert db.session.get(Campaign, campaign.id) is None
 
 
-def test_organizer_can_delete_another_organizers_campaign(
+def test_organizer_cannot_delete_another_organizers_campaign(
     client, make_user, auth_header
 ):
     owner = make_user(role="organizer")
@@ -274,8 +275,8 @@ def test_organizer_can_delete_another_organizers_campaign(
         headers=auth_header(other_organizer),
     )
 
-    assert response.status_code == 200
-    assert db.session.get(Campaign, campaign.id) is None
+    assert response.status_code == 403
+    assert db.session.get(Campaign, campaign.id) is not None
 
 
 def test_campaign_with_pledge_history_cannot_be_deleted(
@@ -309,3 +310,219 @@ def test_campaign_with_pledge_history_cannot_be_deleted(
     assert response.status_code == 409
     assert db.session.get(Campaign, campaign.id) is not None
     assert db.session.get(Pledge, pledge.id) is not None
+
+
+def test_list_campaigns_filters_by_search(client, make_user):
+    organizer = make_user(role="organizer")
+
+    matching = Campaign(
+        title="School Fundraiser",
+        description="Helping students pay school fees.",
+        goal_amount=50000,
+        organizer_id=organizer.id,
+    )
+    other = Campaign(
+        title="Hospital Support",
+        description="Helping patients access treatment.",
+        goal_amount=80000,
+        organizer_id=organizer.id,
+    )
+    db.session.add_all([matching, other])
+    db.session.commit()
+
+    response = client.get("/api/campaigns/?search=school")
+
+    assert response.status_code == 200
+    assert response.json["total"] == 1
+    assert response.json["items"][0]["title"] == "School Fundraiser"
+
+
+def test_list_campaigns_searches_description(client, make_user):
+    organizer = make_user(role="organizer")
+
+    campaign = Campaign(
+        title="Community Support",
+        description="Providing books for rural students.",
+        goal_amount=50000,
+        organizer_id=organizer.id,
+    )
+    db.session.add(campaign)
+    db.session.commit()
+
+    response = client.get("/api/campaigns/?search=rural")
+
+    assert response.status_code == 200
+    assert response.json["total"] == 1
+    assert response.json["items"][0]["title"] == "Community Support"
+
+
+def test_list_campaigns_filters_by_status(client, make_user):
+    organizer = make_user(role="organizer")
+
+    active = Campaign(
+        title="Active Campaign",
+        description="This campaign is currently active.",
+        goal_amount=50000,
+        status="active",
+        organizer_id=organizer.id,
+    )
+    closed = Campaign(
+        title="Closed Campaign",
+        description="This campaign is already closed.",
+        goal_amount=50000,
+        status="closed",
+        organizer_id=organizer.id,
+    )
+    db.session.add_all([active, closed])
+    db.session.commit()
+
+    response = client.get("/api/campaigns/?status=active")
+
+    assert response.status_code == 200
+    assert response.json["total"] == 1
+    assert response.json["items"][0]["title"] == "Active Campaign"
+
+
+def test_list_campaigns_completed_filter_matches_closed_status(
+    client, make_user
+):
+    organizer = make_user(role="organizer")
+
+    campaign = Campaign(
+        title="Closed Campaign",
+        description="This campaign is already closed.",
+        goal_amount=50000,
+        status="closed",
+        organizer_id=organizer.id,
+    )
+    db.session.add(campaign)
+    db.session.commit()
+
+    response = client.get("/api/campaigns/?status=completed")
+
+    assert response.status_code == 200
+    assert response.json["total"] == 1
+    assert response.json["items"][0]["status"] == "closed"
+
+
+def test_list_campaigns_sorts_by_highest_goal(client, make_user):
+    organizer = make_user(role="organizer")
+
+    low = Campaign(
+        title="Low Goal",
+        description="This campaign has a smaller goal.",
+        goal_amount=10000,
+        organizer_id=organizer.id,
+    )
+    high = Campaign(
+        title="High Goal",
+        description="This campaign has a larger goal.",
+        goal_amount=90000,
+        organizer_id=organizer.id,
+    )
+    db.session.add_all([low, high])
+    db.session.commit()
+
+    response = client.get("/api/campaigns/?sort=goal-high")
+
+    assert response.status_code == 200
+    assert response.json["items"][0]["title"] == "High Goal"
+
+
+def test_list_campaigns_sorts_by_lowest_goal(client, make_user):
+    organizer = make_user(role="organizer")
+
+    low = Campaign(
+        title="Low Goal",
+        description="This campaign has a smaller goal.",
+        goal_amount=10000,
+        organizer_id=organizer.id,
+    )
+    high = Campaign(
+        title="High Goal",
+        description="This campaign has a larger goal.",
+        goal_amount=90000,
+        organizer_id=organizer.id,
+    )
+    db.session.add_all([low, high])
+    db.session.commit()
+
+    response = client.get("/api/campaigns/?sort=goal-low")
+
+    assert response.status_code == 200
+    assert response.json["items"][0]["title"] == "Low Goal"
+
+
+def test_list_campaigns_sorts_by_ending_date_with_missing_dates_last(
+    client, make_user
+):
+    from datetime import datetime, timezone, timedelta
+
+    organizer = make_user(role="organizer")
+    soon = Campaign(
+        title="Ending Soon",
+        description="This campaign ends soon.",
+        goal_amount=50000,
+        end_date=datetime.now(timezone.utc) + timedelta(days=2),
+        organizer_id=organizer.id,
+    )
+    later = Campaign(
+        title="Ending Later",
+        description="This campaign ends later.",
+        goal_amount=50000,
+        end_date=datetime.now(timezone.utc) + timedelta(days=10),
+        organizer_id=organizer.id,
+    )
+    no_date = Campaign(
+        title="No End Date",
+        description="This campaign has no end date.",
+        goal_amount=50000,
+        end_date=None,
+        organizer_id=organizer.id,
+    )
+    db.session.add_all([no_date, later, soon])
+    db.session.commit()
+
+    response = client.get("/api/campaigns/?sort=ending")
+
+    assert response.status_code == 200
+    titles = [item["title"] for item in response.json["items"]]
+    assert titles == ["Ending Soon", "Ending Later", "No End Date"]
+
+
+def test_list_campaigns_rejects_invalid_sort(client):
+    response = client.get("/api/campaigns/?sort=unknown")
+
+    assert response.status_code == 422
+    assert "error" in response.json
+
+
+def test_list_campaigns_paginates_after_filtering(client, make_user):
+    organizer = make_user(role="organizer")
+
+    campaigns = [
+        Campaign(
+            title="School Campaign {}".format(number),
+            description="Supporting students with school fees.",
+            goal_amount=50000,
+            organizer_id=organizer.id,
+        )
+        for number in range(3)
+    ]
+    other = Campaign(
+        title="Hospital Campaign",
+        description="Supporting patients in hospitals.",
+        goal_amount=50000,
+        organizer_id=organizer.id,
+    )
+    db.session.add_all(campaigns + [other])
+    db.session.commit()
+
+    response = client.get(
+        "/api/campaigns/?search=school&page=1&per_page=2"
+    )
+
+    assert response.status_code == 200
+    assert response.json["total"] == 3
+    assert response.json["pages"] == 2
+    assert len(response.json["items"]) == 2

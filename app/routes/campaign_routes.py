@@ -24,10 +24,52 @@ campaign_schema = CampaignSchema()
 
 @campaign_bp.get("/")
 def list_campaigns():
-    """Return a paginated list of campaigns."""
+    """Return filtered, sorted and paginated campaigns."""
     try:
+        query = Campaign.query
+
+        # Search campaign titles and descriptions.
+        search = request.args.get("search", "").strip()
+        if search:
+            search_pattern = "%{}%".format(search)
+            query = query.filter(
+                db.or_(
+                    Campaign.title.ilike(search_pattern),
+                    Campaign.description.ilike(search_pattern)
+                )
+            )
+
+        # Filter by campaign status.
+        status = request.args.get("status", "").strip().lower()
+        if status and status != "all":
+            if status == "completed":
+                status = "closed"
+
+            query = query.filter(Campaign.status == status)
+
+        # Apply sorting before pagination.
+        sort = request.args.get("sort", "newest").strip().lower()
+
+        sort_options = {
+            "newest": [Campaign.created_at.desc()],
+            "ending": [
+                Campaign.end_date.is_(None).asc(),
+                Campaign.end_date.asc()
+            ],
+            "goal-high": [Campaign.goal_amount.desc()],
+            "goal-low": [Campaign.goal_amount.asc()]
+        }
+
+        if sort not in sort_options:
+            return error_response(
+                "sort must be one of: newest, ending, goal-high, goal-low",
+                422
+            )
+
+        query = query.order_by(*sort_options[sort])
+
         result = paginate_query(
-            Campaign.query.order_by(Campaign.created_at.desc()),
+            query,
             serializer=lambda campaign: campaign_schema.dump(campaign)
         )
 
@@ -103,6 +145,11 @@ def update_campaign(campaign_id):
     if not campaign:
         return error_response("Campaign not found", 404)
 
+    if campaign.organizer_id != int(get_jwt_identity()):
+        return error_response(
+            "You are not authorized to modify this campaign",
+            403
+        )
 
     data = request.get_json(silent=True)
 
@@ -139,6 +186,11 @@ def delete_campaign(campaign_id):
     if not campaign:
         return error_response("Campaign not found", 404)
 
+    if campaign.organizer_id != int(get_jwt_identity()):
+        return error_response(
+            "You are not authorized to delete this campaign",
+            403
+        )
 
     existing_pledge = Pledge.query.filter_by(
         campaign_id=campaign.id

@@ -1,302 +1,590 @@
 openapi: 3.0.3
+
+servers:
+  - url: http://localhost:5000
+    description: Local development server
+
 info:
   title: Harambee Hub API
-  version: 0.1.0
+  version: 1.0.0
   description: |
-    REST API for Harambee Hub, a fundraising platform that tracks pledges and
-    who has actually paid.
+    API documentation for the implemented Harambee Hub backend.
 
-    Endpoints marked **(planned)** are not built yet. Update this file in the
-    same PR as the route.
+    Backend roles:
+    - organizer: manages their own campaigns and has platform-management access.
+    - contributor: creates and manages their own pledges.
 
-    Authentication uses a JWT. Log in, then send the token in the header
-    `Authorization: Bearer <token>`.
-servers:
-  - url: https://harambee-hub-backend.onrender.com
-    description: production server
-tags:
-  - name: Auth
-  - name: Campaigns
-  - name: Pledges
-  - name: Admin
+    The /api/admin URL prefix contains organizer-only platform-management
+    endpoints. There is no separate admin role.
 
 paths:
-  /api/auth/register:
-    post:
-      tags: [Auth]
-      summary: Create an account
-      description: Only the roles organizer and contributor can self-register. Admins are created by seeding.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name, email, password, role]
-              properties:
-                name: { type: string, example: Amina Otieno }
-                email: { type: string, format: email, example: amina@example.com }
-                phone: { type: string, example: "0712345678" }
-                password: { type: string, minLength: 6, example: secret123 }
-                role: { type: string, enum: [organizer, contributor] }
-      responses:
-        "201":
-          description: Account created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AuthResponse" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "409":
-          description: Email already registered
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-
-  /api/auth/login:
-    post:
-      tags: [Auth]
-      summary: Log in
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email, password]
-              properties:
-                email: { type: string, format: email }
-                password: { type: string }
-      responses:
-        "200":
-          description: Logged in
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AuthResponse" }
-        "401":
-          description: Invalid email or password
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-        "422": { $ref: "#/components/responses/ValidationFailed" }
-
-  /api/auth/me:
+  /api/health:
     get:
-      tags: [Auth]
-      summary: The logged-in user
-      security: [{ bearerAuth: [] }]
+      summary: Check API and database health
+      security: []
       responses:
-        "200":
-          description: The current user
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/User" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
-  /api/auth/change-password:
-    post:
-      tags: [Auth]
-      summary: Change the logged-in user's password
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [old_password, new_password]
-              properties:
-                old_password: { type: string }
-                new_password: { type: string, minLength: 6 }
-      responses:
-        "200":
-          description: Password updated
+        '200':
+          description: API and database are reachable
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  message: { type: string, example: Password updated }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
+                  status: { type: string, example: ok }
+                  database: { type: string, example: ok }
+        '503':
+          description: Database is unreachable
 
-  /api/auth/verify/{token}:
+  /api/auth/register:
+    post:
+      summary: Register a user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationInput'
+      responses:
+        '201':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  email_sent: { type: boolean }
+                  user: { $ref: '#/components/schemas/User' }
+        '409':
+          description: Email already registered
+        '422':
+          description: Registration validation failed
+        '500':
+          description: Registration failed
+
+  /api/auth/verify-email/{token}:
     get:
-      tags: [Auth]
-      summary: Verify an email address (planned)
+      summary: Verify a user's email address
+      security: []
       parameters:
         - name: token
           in: path
           required: true
           schema: { type: string }
+          description: Verification token expires after one hour.
       responses:
-        "200":
-          description: Email verified
-        "400": { $ref: "#/components/responses/BadRequest" }
+        '200':
+          description: Email verified or already verified
+        '400':
+          description: Invalid or expired verification token
+        '404':
+          description: User not found
+        '500':
+          description: Verification failed
 
-  /api/campaigns:
+  /api/auth/login:
+    post:
+      summary: Log in
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginInput'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid email or password
+        '403':
+          description: Email has not been verified
+        '422':
+          description: Login validation failed
+
+  /api/auth/me:
     get:
-      tags: [Campaigns]
-      summary: List campaigns (planned)
+      summary: Get the authenticated user's profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/auth/change-password:
+    post:
+      summary: Change the authenticated user's password
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordInput'
+      responses:
+        '200':
+          description: Password updated
+        '400':
+          description: New password is too short
+        '401':
+          description: Old password is incorrect or token is invalid
+        '404':
+          description: User not found
+
+  /api/campaigns/:
+    get:
+      summary: List campaigns
+      description: |
+        Public, paginated campaign listing. Filtering and sorting are applied
+        before pagination. The status value completed is mapped to the stored
+        status closed. Use all to disable status filtering.
+      security: []
       parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
         - name: search
           in: query
           schema: { type: string }
-        - name: category
+          description: Case-insensitive search in campaign title and description.
+        - name: status
           in: query
-          schema: { type: string }
+          schema:
+            type: string
+            example: active
+          description: Filter by status. completed maps to closed; all disables filtering.
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [newest, ending, goal-high, goal-low]
+            default: newest
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
       responses:
-        "200":
-          description: A page of campaigns
+        '200':
+          description: Paginated campaigns
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items: { $ref: "#/components/schemas/Campaign" }
-                  page: { type: integer }
-                  per_page: { type: integer }
-                  total: { type: integer }
-                  pages: { type: integer }
+                $ref: '#/components/schemas/CampaignPage'
+        '422':
+          description: Invalid query parameter
+
     post:
-      tags: [Campaigns]
-      summary: Create a campaign (organizer only) (planned)
-      security: [{ bearerAuth: [] }]
+      summary: Create a campaign
+      description: Organizer only. Supports JSON or multipart form data. For multipart uploads, use the image field.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/CampaignInput" }
+            schema:
+              $ref: '#/components/schemas/CampaignInput'
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/CampaignInput'
+                - type: object
+                  properties:
+                    image:
+                      type: string
+                      format: binary
       responses:
-        "201":
+        '201':
           description: Campaign created
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Campaign" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "422": { $ref: "#/components/responses/ValidationFailed" }
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          description: Invalid request body or campaign fields
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Only organizers can create campaigns
+        '502':
+          description: Image upload failed
 
-  /api/campaigns/{id}:
+  /api/campaigns/{campaign_id}:
+    parameters:
+      - name: campaign_id
+        in: path
+        required: true
+        schema: { type: integer }
+
     get:
-      tags: [Campaigns]
-      summary: One campaign (planned)
-      parameters:
-        - $ref: "#/components/parameters/Id"
+      summary: Get campaign details
+      security: []
       responses:
-        "200":
-          description: The campaign
+        '200':
+          description: Campaign details
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Campaign" }
-        "404": { $ref: "#/components/responses/NotFound" }
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '404':
+          description: Campaign not found
 
-  /api/campaigns/{id}/pledges:
-    post:
-      tags: [Pledges]
-      summary: Pledge to a campaign (contributor only) (planned)
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - $ref: "#/components/parameters/Id"
+    patch:
+      summary: Update a campaign
+      description: Only the organizer who owns the campaign may update it.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [amount]
-              properties:
-                amount: { type: number, minimum: 1, example: 1000 }
+              $ref: '#/components/schemas/CampaignUpdateInput'
       responses:
-        "201":
+        '200':
+          description: Campaign updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          description: Empty body or invalid campaign fields
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Campaign belongs to another organizer
+        '404':
+          description: Campaign not found
+
+    delete:
+      summary: Delete a campaign
+      description: Only the organizer who owns the campaign may delete it. Campaigns with pledge history cannot be deleted.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Campaign deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Campaign belongs to another organizer
+        '404':
+          description: Campaign not found
+        '409':
+          description: Campaign has pledge history and cannot be deleted
+
+  /api/pledges/campaign/{campaign_id}:
+    parameters:
+      - name: campaign_id
+        in: path
+        required: true
+        schema: { type: integer }
+
+    get:
+      summary: List public pledges for a campaign
+      description: |
+        Returns pending and confirmed pledges. Cancelled pledges are not public.
+        The optional status filter accepts pending or confirmed.
+      security: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, confirmed]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Paginated public pledges and raised amount
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicPledgePage'
+        '404':
+          description: Campaign not found
+        '422':
+          description: Invalid query or cancelled pledges requested
+
+    post:
+      summary: Create a pledge for a campaign
+      description: Authenticated contributors only. Campaign must be active.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PledgeCreateInput'
+      responses:
+        '201':
           description: Pledge created
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Pledge" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "422": { $ref: "#/components/responses/ValidationFailed" }
+              schema:
+                type: object
+                properties:
+                  pledge: { $ref: '#/components/schemas/Pledge' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Only contributors can create pledges
+        '404':
+          description: Campaign not found
+        '409':
+          description: Campaign is closed
+        '422':
+          description: Invalid pledge fields
 
   /api/pledges/mine:
     get:
-      tags: [Pledges]
-      summary: The logged-in contributor's pledges (planned)
-      security: [{ bearerAuth: [] }]
+      summary: List the authenticated user's pledges
+      security:
+        - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, confirmed, cancelled]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
       responses:
-        "200":
-          description: A page of pledges
+        '200':
+          description: Paginated pledges belonging to the authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PledgePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Invalid query parameters
+
+  /api/pledges/campaign/{campaign_id}/manage:
+    get:
+      summary: Organizer pledge management view
+      description: Organizer only. Returns pledges, status counts and confirmed raised amount for the selected campaign.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: campaign_id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, confirmed, cancelled]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Paginated campaign pledge management data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedPledgePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Organizer role required
+        '404':
+          description: Campaign not found
+        '422':
+          description: Invalid query parameters
+
+  /api/pledges/{pledge_id}:
+    parameters:
+      - name: pledge_id
+        in: path
+        required: true
+        schema: { type: integer }
+
+    get:
+      summary: Get a pledge
+      description: Available to the contributor who owns the pledge or an organizer.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pledge details
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  items:
-                    type: array
-                    items: { $ref: "#/components/schemas/Pledge" }
-                  page: { type: integer }
-                  per_page: { type: integer }
-                  total: { type: integer }
-                  pages: { type: integer }
-        "401": { $ref: "#/components/responses/Unauthorized" }
+                  pledge: { $ref: '#/components/schemas/Pledge' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: User cannot view this pledge
+        '404':
+          description: Pledge not found
 
-  /api/pledges/{id}:
     patch:
-      tags: [Pledges]
-      summary: Mark a pledge as paid (organizer of that campaign) (planned)
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - $ref: "#/components/parameters/Id"
+      summary: Update a pledge
+      description: Only the contributor who owns a pending pledge may update it.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [status]
-              properties:
-                status: { type: string, enum: [pending, paid, overdue] }
+              $ref: '#/components/schemas/PledgeUpdateInput'
       responses:
-        "200":
+        '200':
           description: Pledge updated
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Pledge" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-
-  /api/admin/users:
-    get:
-      tags: [Admin]
-      summary: List users (admin only) (planned)
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
-      responses:
-        "200":
-          description: A page of users
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  items:
-                    type: array
-                    items: { $ref: "#/components/schemas/User" }
-                  page: { type: integer }
-                  per_page: { type: integer }
-                  total: { type: integer }
-                  pages: { type: integer }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
+                  pledge: { $ref: '#/components/schemas/Pledge' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: User does not own this pledge
+        '404':
+          description: Pledge not found
+        '409':
+          description: Pledge is not pending
+        '422':
+          description: Invalid pledge fields
+
+    delete:
+      summary: Cancel a pledge
+      description: The pledge owner or an organizer may cancel a pending pledge.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pledge cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pledge: { $ref: '#/components/schemas/Pledge' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: User cannot cancel this pledge
+        '404':
+          description: Pledge not found
+        '409':
+          description: Pledge is not pending
+
+  /api/pledges/{pledge_id}/confirm:
+    post:
+      summary: Confirm a pledge
+      description: Organizer only. Only pending pledges can be confirmed.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: pledge_id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Pledge confirmed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pledge: { $ref: '#/components/schemas/Pledge' }
+                  campaign_id: { type: integer }
+                  raised_amount: { type: number }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Organizer role required
+        '404':
+          description: Pledge not found
+        '409':
+          description: Pledge is not pending
+
+  /api/pledges/{pledge_id}/remind:
+    post:
+      summary: Send a pledge reminder
+      description: Organizer only. Sends a reminder email to the contributor associated with the pledge.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: pledge_id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Reminder sent
+        '400':
+          description: Contributor email is unavailable
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Organizer role required or campaign unavailable
+        '404':
+          description: Pledge not found
+        '502':
+          description: Reminder email failed
+        '503':
+          description: Email or campaign service unavailable
+
+  /api/admin/users:
+    get:
+      summary: List platform users
+      description: Organizer only. Returns users in paginated order by user ID.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Paginated users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Organizer role required
+        '422':
+          description: Invalid pagination parameters
+
+  /api/admin/dashboard:
+    get:
+      summary: Get platform dashboard statistics
+      description: Organizer only. The /api/admin prefix does not represent a separate admin role.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Platform statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Organizer role required
 
 components:
   securitySchemes:
@@ -306,60 +594,92 @@ components:
       bearerFormat: JWT
 
   parameters:
-    Id:
-      name: id
-      in: path
-      required: true
-      schema: { type: integer }
     Page:
       name: page
       in: query
-      schema: { type: integer, minimum: 1, default: 1 }
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
     PerPage:
       name: per_page
       in: query
-      schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 10
 
   responses:
-    BadRequest:
-      description: Bad request
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/Error" }
     Unauthorized:
-      description: Not logged in, or the token is missing, invalid or expired
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-    Forbidden:
-      description: Logged in, but the role is not allowed
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-    NotFound:
-      description: Not found
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-    ValidationFailed:
-      description: The input failed validation
+      description: Missing, invalid or expired authentication token
       content:
         application/json:
           schema:
-            type: object
-            properties:
-              error: { type: string, example: Validation failed }
-              details:
-                type: object
-                additionalProperties:
-                  type: array
-                  items: { type: string }
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
 
   schemas:
     Error:
       type: object
       properties:
-        error: { type: string, example: Not found }
+        error:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+    RegistrationInput:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+          maxLength: 120
+        password:
+          type: string
+          minLength: 8
+        phone:
+          type: string
+          nullable: true
+          maxLength: 20
+        role:
+          type: string
+          enum: [organizer, contributor]
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    ChangePasswordInput:
+      type: object
+      required: [old_password, new_password]
+      properties:
+        old_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+          minLength: 8
+
     User:
       type: object
       properties:
@@ -367,43 +687,210 @@ components:
         name: { type: string }
         email: { type: string, format: email }
         phone: { type: string, nullable: true }
-        role: { type: string, enum: [organizer, contributor, admin] }
+        role:
+          type: string
+          enum: [organizer, contributor]
+        email_verified: { type: boolean }
+
     AuthResponse:
       type: object
       properties:
         token: { type: string }
-        user: { $ref: "#/components/schemas/User" }
+        user:
+          $ref: '#/components/schemas/User'
+
     CampaignInput:
       type: object
-      required: [title, category, goal_amount]
+      required: [title, description, goal_amount]
       properties:
-        title: { type: string }
-        description: { type: string }
-        category: { type: string, enum: [wedding, funeral, school_fees, medical, community] }
-        goal_amount: { type: number, minimum: 1 }
-        deadline: { type: string, format: date }
+        title:
+          type: string
+          minLength: 3
+          maxLength: 150
+        description:
+          type: string
+          minLength: 10
+        goal_amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          multipleOf: 0.01
+        end_date:
+          type: string
+          format: date-time
+          nullable: true
+
+    CampaignUpdateInput:
+      type: object
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 150
+        description:
+          type: string
+          minLength: 10
+        goal_amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          multipleOf: 0.01
+        end_date:
+          type: string
+          format: date-time
+          nullable: true
+
     Campaign:
       type: object
       properties:
         id: { type: integer }
-        organizer_id: { type: integer }
         title: { type: string }
         description: { type: string }
-        category: { type: string }
-        goal_amount: { type: number }
-        total_pledged: { type: number }
-        total_paid: { type: number }
-        image_url: { type: string, nullable: true }
-        status: { type: string, enum: [active, closed] }
-        deadline: { type: string, format: date, nullable: true }
-        created_at: { type: string, format: date-time }
+        goal_amount:
+          type: string
+          description: Decimal amount serialized as a string by the campaign schema.
+        image_url:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, closed]
+        end_date:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        organizer_id: { type: integer }
+
+    CampaignPage:
+      type: object
+      properties:
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        pages: { type: integer }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Campaign'
+
+    PledgeCreateInput:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: number
+          minimum: 1
+          maximum: 10000000
+          multipleOf: 0.01
+        message:
+          type: string
+          nullable: true
+          maxLength: 500
+
+    PledgeUpdateInput:
+      type: object
+      minProperties: 1
+      properties:
+        amount:
+          type: number
+          minimum: 1
+          maximum: 10000000
+          multipleOf: 0.01
+        message:
+          type: string
+          nullable: true
+          maxLength: 500
+
     Pledge:
       type: object
       properties:
         id: { type: integer }
         campaign_id: { type: integer }
-        contributor_id: { type: integer }
-        amount: { type: number }
-        status: { type: string, enum: [pending, paid, overdue] }
-        pledged_at: { type: string, format: date-time }
-        paid_at: { type: string, format: date-time, nullable: true }
+        amount: { type: number, nullable: true }
+        message: { type: string, nullable: true }
+        status:
+          type: string
+          enum: [pending, confirmed, cancelled]
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        confirmed_at:
+          type: string
+          format: date-time
+          nullable: true
+        contributor:
+          type: object
+          nullable: true
+          properties:
+            id: { type: integer, nullable: true }
+            name: { type: string, nullable: true }
+
+    PledgePage:
+      type: object
+      properties:
+        count: { type: integer }
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        pages: { type: integer }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pledge'
+
+    PublicPledgePage:
+      allOf:
+        - $ref: '#/components/schemas/PledgePage'
+        - type: object
+          properties:
+            campaign_id: { type: integer }
+            raised_amount: { type: number }
+
+    ManagedPledgePage:
+      allOf:
+        - $ref: '#/components/schemas/PledgePage'
+        - type: object
+          properties:
+            campaign_id: { type: integer }
+            raised_amount: { type: number }
+            counts:
+              type: object
+              additionalProperties:
+                type: integer
+
+    UserPage:
+      type: object
+      properties:
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        pages: { type: integer }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+
+    DashboardStats:
+      type: object
+      properties:
+        users_by_role:
+          type: object
+          additionalProperties:
+            type: integer
+        campaigns_by_status:
+          type: object
+          additionalProperties:
+            type: integer
+        total_pledged:
+          type: string
+        total_confirmed:
+          type: string
+        pledges_by_status:
+          type: object
+          additionalProperties:
+            type: integer

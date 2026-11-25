@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, request, jsonify, current_app
 from marshmallow import ValidationError
@@ -5,9 +6,13 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 from app.extensions import db
 from app.models.user import User
-from app.schemas.registration_schema import RegistrationSchema
+from app.schemas.registration_schema import (
+    RegistrationSchema,
+    ResendVerificationSchema,
+)
 from app.utils.email import send_verification_email
 from app.utils.errors import error_response
+
 
 
 registration_bp = Blueprint(
@@ -17,6 +22,8 @@ registration_bp = Blueprint(
 )
 
 registration_schema = RegistrationSchema()
+resend_verification_schema = ResendVerificationSchema()
+
 
 
 def generate_verification_token(email):
@@ -66,6 +73,7 @@ def register():
     user.set_password(validated_data["password"])
 
     try:
+        user.last_verification_sent_at = datetime.now(timezone.utc)
         db.session.add(user)
         db.session.commit()
 
@@ -95,6 +103,66 @@ def register():
         current_app.logger.exception("Registration failed.")
         return error_response("Registration failed. Please try again.", 500)
 
+@registration_bp.post("/resend-verification")
+def resend_verification():
+    try:
+        data = resend_verification_schema.load(
+            request.get_json(silent=True) or {}
+        )
+    except ValidationError as error:
+        return jsonify({"errors": error.messages}), 422
+
+    response_message = {
+        "message": (
+            "If an unverified account exists for that email, "
+            "a verification link will be sent."
+        )
+    }
+
+    user = User.query.filter_by(email=data["email"]).first()
+
+    if not user or user.email_verified:
+        return jsonify(response_message), 200
+
+    now = datetime.now(timezone.utc)
+    last_sent = user.last_verification_sent_at
+
+    if last_sent is not None:
+        if last_sent.tzinfo is None:
+            last_sent = last_sent.replace(tzinfo=timezone.utc)
+
+        if now - last_sent < timedelta(seconds=60):
+            return jsonify(response_message), 200
+
+    user.last_verification_sent_at = now
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            "Could not record verification resend attempt."
+        )
+        return jsonify(response_message), 200
+
+    token = generate_verification_token(user.email)
+
+    verification_url = (
+        f"{request.host_url.rstrip('/')}"
+        f"/api/auth/verify-email/{token}"
+    )
+
+    email_sent = send_verification_email(
+        user.email,
+        verification_url
+    )
+
+    if not email_sent:
+        current_app.logger.warning(
+            "Verification resend was not accepted by SendGrid."
+        )
+
+    return jsonify(response_message), 200
 
 @registration_bp.get("/verify-email/<token>")
 def verify_email(token):

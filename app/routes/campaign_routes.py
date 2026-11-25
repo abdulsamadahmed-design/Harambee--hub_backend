@@ -128,7 +128,7 @@ def create_campaign():
         return jsonify({"errors": error.messages}), 400
 
     except ValueError as error:
-        return error_response(str(error), 422)
+        return error_response(str(error), 400)
 
     except (CloudinaryError, RuntimeError) as error:
         db.session.rollback()

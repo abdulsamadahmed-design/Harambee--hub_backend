@@ -1,6 +1,8 @@
 openapi: 3.0.3
 
 servers:
+  - url: https://harambee-hub-backend.onrender.com
+    description: Production API
   - url: http://localhost:5000
     description: Local development server
 
@@ -106,6 +108,83 @@ paths:
           description: Email has not been verified
         '422':
           description: Login validation failed
+
+  /api/auth/refresh:
+    post:
+      summary: Refresh an access token
+      description: Requires a valid refresh JWT in the Authorization header.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: New access token generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/auth/reset-password:
+    post:
+      summary: Reset a password using a recovery code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetInput'
+      responses:
+        '200':
+          description: Password reset successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Recovery code is invalid or expired
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Password reset could not be completed
+
+  /api/auth/resend-verification:
+    post:
+      summary: Resend an email verification link
+      description: |
+        Returns the same generic success message whether the email belongs
+        to an unverified account, a verified account, or no account.
+        Resends are subject to a 60-second cooldown.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendVerificationInput'
+      responses:
+        '200':
+          description: Generic verification response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationValidationError'
 
   /api/auth/me:
     get:
@@ -586,6 +665,79 @@ paths:
         '403':
           description: Organizer role required
 
+  /api/organizer/dashboard:
+    get:
+      summary: Get organizer dashboard statistics
+      description: Returns statistics for the authenticated organizer's campaigns.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Organizer dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizerDashboardStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Organizer role required
+
+  /api/webhooks/sendgrid/events:
+    post:
+      summary: Receive SendGrid email delivery events
+      description: |
+        Accepts SendGrid event webhook payloads. Requests must include a
+        valid ECDSA signature and timestamp. Events are stored idempotently
+        using their SendGrid event IDs.
+      security: []
+      parameters:
+        - name: X-Twilio-Email-Event-Webhook-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: X-Twilio-Email-Event-Webhook-Timestamp
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/SendGridEvent'
+      responses:
+        '200':
+          description: Events received and new events stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendGridEventsResponse'
+        '400':
+          description: Expected a JSON event array
+        '401':
+          description: Missing or invalid webhook signature
+        '500':
+          description: Could not save events
+        '503':
+          description: Webhook security is not configured
+
+  /api/openapi.yaml:
+    get:
+      summary: Retrieve the OpenAPI specification
+      security: []
+      responses:
+        '200':
+          description: OpenAPI YAML document
+          content:
+            application/yaml:
+              schema:
+                type: string
+
 components:
   securitySchemes:
     bearerAuth:
@@ -695,9 +847,111 @@ components:
     AuthResponse:
       type: object
       properties:
-        token: { type: string }
+        token:
+          type: string
+          description: Access JWT used to authenticate API requests.
+        refresh_token:
+          type: string
+          description: Refresh JWT used to obtain a new access token.
         user:
           $ref: '#/components/schemas/User'
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    ValidationError:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+    RegistrationValidationError:
+      type: object
+      properties:
+        errors:
+          type: object
+          additionalProperties: true
+
+    PasswordResetInput:
+      type: object
+      required: [email, code, new_password]
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+        new_password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+
+    ResendVerificationInput:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 120
+
+    OrganizerDashboardStats:
+      type: object
+      properties:
+        total_campaigns:
+          type: integer
+        active_campaigns:
+          type: integer
+        total_contributions:
+          type: integer
+        total_amount_raised:
+          type: number
+          format: float
+
+    SendGridEvent:
+      type: object
+      description: SendGrid email event webhook item.
+      properties:
+        sg_event_id:
+          type: string
+        email:
+          type: string
+          format: email
+        event:
+          type: string
+        timestamp:
+          oneOf:
+            - type: integer
+            - type: number
+            - type: string
+        sg_message_id:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        response:
+          type: string
+          nullable: true
+
+    SendGridEventsResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        received:
+          type: integer
+        stored:
+          type: integer
 
     CampaignInput:
       type: object

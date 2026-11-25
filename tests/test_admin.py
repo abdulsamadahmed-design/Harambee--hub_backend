@@ -12,51 +12,61 @@ def test_contributor_cannot_list_users(client, make_user, auth_header):
     assert response.status_code == 403
 
 
-def test_organizer_can_list_users(client, make_user, auth_header):
+def test_organizer_cannot_list_users(client, make_user, auth_header):
     organizer = make_user(role="organizer")
-    make_user(role="contributor")
-
     response = client.get(
         "/api/admin/users",
         headers=auth_header(organizer)
     )
+    assert response.status_code == 403
+
+
+def test_admin_can_list_users(client, make_user, auth_header):
+    admin = make_user(role="admin")
+    make_user(role="organizer")
+    make_user(role="contributor")
+
+    response = client.get(
+        "/api/admin/users",
+        headers=auth_header(admin)
+    )
 
     assert response.status_code == 200
     data = response.get_json()
-    assert data["total"] == 2
+    assert data["total"] == 3
     assert data["page"] == 1
     assert data["per_page"] == 10
     assert data["pages"] == 1
-    assert len(data["items"]) == 2
+    assert len(data["items"]) == 3
 
     for user in data["items"]:
         assert "id" in user
         assert "name" in user
         assert "email" in user
-        assert user["role"] in ("organizer", "contributor")
+        assert user["role"] in ("admin", "organizer", "contributor")
         assert "password_hash" not in user
 
 
 def test_user_without_role_claim_cannot_list_users(
     client, make_user, auth_header
 ):
-    organizer = make_user(role="organizer")
+    admin = make_user(role="admin")
     response = client.get(
         "/api/admin/users",
-        headers=auth_header(organizer, with_role=False)
+        headers=auth_header(admin, with_role=False)
     )
     assert response.status_code == 403
 
 
-def test_organizer_users_pagination(client, make_user, auth_header):
-    organizer = make_user(role="organizer")
+def test_admin_users_pagination(client, make_user, auth_header):
+    admin = make_user(role="admin")
 
     for number in range(12):
         make_user(role="contributor", name="Contributor {}".format(number))
 
     response = client.get(
         "/api/admin/users?page=2&per_page=5",
-        headers=auth_header(organizer)
+        headers=auth_header(admin)
     )
 
     assert response.status_code == 200
@@ -70,11 +80,11 @@ def test_organizer_users_pagination(client, make_user, auth_header):
     assert ids == sorted(ids)
 
 
-def test_organizer_users_rejects_invalid_page(client, make_user, auth_header):
-    organizer = make_user(role="organizer")
+def test_admin_users_rejects_invalid_page(client, make_user, auth_header):
+    admin = make_user(role="admin")
     response = client.get(
         "/api/admin/users?page=abc",
-        headers=auth_header(organizer)
+        headers=auth_header(admin)
     )
     assert response.status_code == 422
 
@@ -93,13 +103,23 @@ def test_contributor_cannot_access_dashboard(client, make_user, auth_header):
     assert response.status_code == 403
 
 
-def test_organizer_can_access_dashboard_and_view_statistics(
+def test_organizer_cannot_access_dashboard(client, make_user, auth_header):
+    organizer = make_user(role="organizer")
+    response = client.get(
+        "/api/admin/dashboard",
+        headers=auth_header(organizer)
+    )
+    assert response.status_code == 403
+
+
+def test_admin_can_access_dashboard_and_view_statistics(
     client, make_user, auth_header
 ):
     from app.extensions import db
     from app.models.campaign import Campaign
     from app.models.pledge import Pledge
 
+    admin = make_user(role="admin")
     organizer = make_user(role="organizer")
     make_user(role="contributor")
 
@@ -123,17 +143,18 @@ def test_organizer_can_access_dashboard_and_view_statistics(
 
     response = client.get(
         "/api/admin/dashboard",
-        headers=auth_header(organizer)
+        headers=auth_header(admin)
     )
 
     assert response.status_code == 200
     data = response.get_json()
     assert data["users_by_role"] == {
+        "admin": 1,
         "organizer": 1,
         "contributor": 1
     }
     assert data["campaigns_by_status"] == {"active": 1}
-    assert data["total_pledged"] == "60.00"
+    assert data["total_pledged"] == "30.00"
     assert data["total_confirmed"] == "20.00"
     assert data["pledges_by_status"] == {
         "pending": 1,

@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 
 import time
 import itsdangerous.timed
@@ -154,3 +155,138 @@ def test_expired_email_verification_token(client, app, monkeypatch):
     response = client.get(f"/api/auth/verify-email/{token}")
 
     assert response.status_code == 400
+
+def test_resend_verification_sends_email_to_unverified_user(
+    client, make_user, monkeypatch
+):
+    user = make_user(
+        email="resend@example.com",
+        email_verified=False
+    )
+
+    captured = {}
+
+    def fake_send(email, url):
+        captured["email"] = email
+        captured["url"] = url
+        return True
+
+    monkeypatch.setattr(
+        "app.routes.registration_routes.send_verification_email",
+        fake_send
+    )
+
+    response = client.post(
+        "/api/auth/resend-verification",
+        json={"email": "resend@example.com"}
+    )
+
+    assert response.status_code == 200
+    assert captured["email"] == user.email
+    assert "/api/auth/verify-email/" in captured["url"]
+    assert user.last_verification_sent_at is not None
+
+
+def test_resend_verification_respects_60_second_cooldown(
+    client, make_user, monkeypatch
+):
+    user = make_user(
+        email="cooldown@example.com",
+        email_verified=False
+    )
+
+    user.last_verification_sent_at = (
+        datetime.now(timezone.utc) - timedelta(seconds=30)
+    )
+    db.session.commit()
+
+    sent = []
+
+    monkeypatch.setattr(
+        "app.routes.registration_routes.send_verification_email",
+        lambda email, url: sent.append(email) or True
+    )
+
+    response = client.post(
+        "/api/auth/resend-verification",
+        json={"email": user.email}
+    )
+
+    assert response.status_code == 200
+    assert sent == []
+
+
+def test_resend_verification_does_not_send_to_verified_user(
+    client, make_user, monkeypatch
+):
+    user = make_user(email="verified@example.com")
+
+    sent = []
+
+    monkeypatch.setattr(
+        "app.routes.registration_routes.send_verification_email",
+        lambda email, url: sent.append(email) or True
+    )
+
+    response = client.post(
+        "/api/auth/resend-verification",
+        json={"email": user.email}
+    )
+
+    assert response.status_code == 200
+    assert sent == []
+
+
+def test_resend_verification_unknown_email_returns_generic_response(
+    client, monkeypatch
+):
+    sent = []
+
+    monkeypatch.setattr(
+        "app.routes.registration_routes.send_verification_email",
+        lambda email, url: sent.append(email) or True
+    )
+
+    response = client.post(
+        "/api/auth/resend-verification",
+        json={"email": "unknown@example.com"}
+    )
+
+    assert response.status_code == 200
+    assert sent == []
+
+
+def test_resend_verification_rejects_invalid_email(client):
+    response = client.post(
+        "/api/auth/resend-verification",
+        json={"email": "not-an-email"}
+    )
+
+    assert response.status_code == 422
+
+
+def test_registration_cooldown_blocks_immediate_resend(
+    client, monkeypatch
+):
+    sent = []
+
+    monkeypatch.setattr(
+        "app.routes.registration_routes.send_verification_email",
+        lambda email, url: sent.append(email) or True
+    )
+
+    registration = client.post(
+        "/api/auth/register",
+        json=valid_registration_data()
+    )
+
+    assert registration.status_code == 201
+    assert len(sent) == 1
+
+    resend = client.post(
+        "/api/auth/resend-verification",
+        json={"email": "test@example.com"}
+    )
+
+    assert resend.status_code == 200
+    assert len(sent) == 1

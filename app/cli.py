@@ -647,6 +647,40 @@ def contributor_menu(user):
             click.echo("\nLogged out.")
             break
 
+def admin_menu(user):
+    """Show admin options."""
+    while True:
+        click.echo("\n========== ADMIN DASHBOARD ==========")
+        click.echo("1. View dashboard statistics")
+        click.echo("2. View all users")
+        click.echo("3. View active campaigns")
+        click.echo("4. View all pledges")
+        click.echo("5. Check database connection")
+        click.echo("6. Logout")
+
+        choice = click.prompt("Select an option").strip()
+
+        if choice == "1":
+            show_dashboard(user)
+
+        elif choice == "2":
+            list_users()
+
+        elif choice == "3":
+            list_campaigns()
+
+        elif choice == "4":
+            list_pledges()
+
+        elif choice == "5":
+            check_database()
+
+        elif choice == "6":
+            click.echo("\nLogged out.")
+            break
+
+        else:
+            click.echo("Wrong number. Try again.")
 
 @click.command("hub")
 def hub_cli():
@@ -678,6 +712,8 @@ def hub_cli():
                 organizer_menu(user)
             elif user.role == "contributor":
                 contributor_menu(user)
+            elif user.role == "admin":
+                admin_menu(user)
             else:
                 click.echo("\nYour account has an unsupported role.")
 
@@ -685,7 +721,53 @@ def hub_cli():
             click.echo("\nExiting Harambee Hub CLI.")
             break
 
+@click.command("seed-admin")
+def seed_admin_cli():
+    """Create the initial admin account."""
+    email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+    password = os.environ.get("ADMIN_PASSWORD")
+
+    if not email or not password:
+        raise click.ClickException(
+            "ADMIN_EMAIL and ADMIN_PASSWORD must both be set."
+        )
+
+    if len(password) < 8:
+        raise click.ClickException(
+            "Admin password must contain at least 8 characters."
+        )
+
+    existing_user = User.query.filter_by(email=email).first()
+
+    if existing_user:
+        if existing_user.role == "admin":
+            click.echo("Admin already exists. No changes made.")
+            return
+
+        raise click.ClickException(
+            "A user with this email already exists with another role."
+        )
+
+    admin = User(
+        name=email.split("@", 1)[0],
+        email=email,
+        role="admin",
+        email_verified=True,
+    )
+
+    admin.set_password(password)
+
+    try:
+        db.session.add(admin)
+        db.session.commit()
+        click.echo("Admin account created successfully.")
+    except Exception:
+        db.session.rollback()
+        raise click.ClickException(
+            "Could not create admin account. Check application logs."
+        )
 
 def register_cli(app):
     """Register custom CLI commands with Flask."""
     app.cli.add_command(hub_cli)
+    app.cli.add_command(seed_admin_cli)

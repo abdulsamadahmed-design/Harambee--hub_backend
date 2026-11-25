@@ -771,4 +771,3 @@ def register_cli(app):
     """Register custom CLI commands with Flask."""
     app.cli.add_command(hub_cli)
     app.cli.add_command(seed_admin_cli)
-

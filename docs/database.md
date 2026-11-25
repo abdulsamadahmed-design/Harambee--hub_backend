@@ -1,103 +1,104 @@
-# Database design
 
-Proposal for the team to confirm on Day 1. Update this file whenever a model changes.
+# Harambee Hub Database Design
 
-## Entity relationship diagram
+This document describes the database structure implemented in the backend models.
 
-GitHub renders this diagram automatically.
+## Entity Relationship Diagram
 
 ```mermaid
 erDiagram
-    USERS ||--o{ CAMPAIGNS : organizes
-    USERS ||--o{ PLEDGES : makes
-    CAMPAIGNS ||--o{ PLEDGES : receives
+    USER ||--o{ CAMPAIGN : organizes
+    USER o|--o{ PLEDGE : contributes
+    CAMPAIGN ||--o{ PLEDGE : receives
 
-    USERS {
+    USER {
         int id PK
         string name
         string email UK
         string phone
         string password_hash
-        string role "organizer | contributor | admin"
+        string role
         boolean email_verified
         datetime created_at
     }
 
-    CAMPAIGNS {
+    CAMPAIGN {
         int id PK
         int organizer_id FK
         string title
         text description
-        string category "wedding | funeral | school_fees | medical | community"
         decimal goal_amount
-        string image_url
-        string status "active | closed"
-        date deadline
+        text image_url
+        string status
+        datetime end_date
         datetime created_at
     }
 
-    PLEDGES {
+    PLEDGE {
         int id PK
         int campaign_id FK
-        int contributor_id FK
+        int contributor_id FK "nullable"
+        string contributor_name
         decimal amount
-        string status "pending | paid | overdue"
-        datetime pledged_at
-        datetime paid_at
-        datetime last_reminder_at
+        string message
+        boolean is_anonymous
+        string status
+        datetime created_at
+        datetime confirmed_at
     }
 ```
 
-## DBML (paste into dbdiagram.io for a picture)
+## Database Tables
 
-```
-Table users {
-  id integer [pk, increment]
-  name varchar(100) [not null]
-  email varchar(255) [not null, unique]
-  phone varchar(20)
-  password_hash varchar(255) [not null]
-  role varchar(20) [not null, note: 'organizer | contributor | admin']
-  email_verified boolean [not null, default: false]
-  created_at timestamp [not null]
-}
+### 1. User
 
-Table campaigns {
-  id integer [pk, increment]
-  organizer_id integer [not null, ref: > users.id]
-  title varchar(150) [not null]
-  description text
-  category varchar(30) [not null]
-  goal_amount decimal(12,2) [not null]
-  image_url varchar(500)
-  status varchar(20) [not null, default: 'active']
-  deadline date
-  created_at timestamp [not null]
-}
+- id: Primary key
+- name: User's name
+- email: Unique email address
+- phone: Phone number
+- password_hash: Hashed password
+- role: organizer or contributor
+- email_verified: Email verification status
+- created_at: Account creation date
 
-Table pledges {
-  id integer [pk, increment]
-  campaign_id integer [not null, ref: > campaigns.id]
-  contributor_id integer [not null, ref: > users.id]
-  amount decimal(12,2) [not null]
-  status varchar(20) [not null, default: 'pending']
-  pledged_at timestamp [not null]
-  paid_at timestamp
-  last_reminder_at timestamp
-}
-```
+### 2. Campaign
 
-## Why this satisfies 2NF
+- id: Primary key
+- organizer_id: Foreign key referencing user.id
+- title: Campaign title
+- description: Campaign description
+- goal_amount: Fundraising target
+- image_url: Campaign image
+- status: Campaign status, default active
+- end_date: Campaign end date
+- created_at: Campaign creation date
 
-- Every table has a single-column primary key (`id`), so no non-key column can depend on only part of a key.
-- Every non-key column describes only its own row. The organizer's name is not copied into `campaigns`, it is reached through `organizer_id`. A campaign's title is not copied into `pledges`, it is reached through `campaign_id`.
-- Relationships: one user organizes many campaigns, one campaign receives many pledges, and one user makes many pledges.
-- Campaign progress (total pledged, total collected) is calculated from `pledges`, not stored, so it can never be out of date.
+### 3. Pledge
 
-## Decisions for the team
+- id: Primary key
+- campaign_id: Foreign key referencing campaign.id
+- contributor_id: Nullable foreign key referencing user.id
+- contributor_name: Contributor's name
+- amount: Pledged amount
+- message: Optional pledge message
+- is_anonymous: Whether the pledge is anonymous
+- status: pending, confirmed, or cancelled
+- created_at: Pledge creation date
+- confirmed_at: Date the pledge was confirmed
 
-- **Paid vs pledged:** this design marks a pledge as paid with `status` and `paid_at`. If a contributor must be able to pay in several instalments, add a `payments` table (`id`, `pledge_id` FK, `amount`, `paid_at`) and calculate the pledge's status from it.
-- **One pledge per person per campaign?** If yes, add a unique constraint on (`campaign_id`, `contributor_id`).
-- **Email verification:** the verification token is a signed, time-limited string and is not stored. Only the `email_verified` flag is. M6 adds it to the `User` model with a migration (default `false`), and M2's registration flow sets it to `true` when the link in the email is used.
-- **Money:** use `Numeric(12, 2)`, never floats.
-- **Admins** are created in `seed.py` only, never through registration.
+## Relationships
+
+1. One user can organize many campaigns.
+2. One campaign can receive many pledges.
+3. One user can make many pledges.
+4. A pledge can have a null contributor_id.
+
+## Important Notes
+
+- The application uses two roles: organizer and contributor.
+- Campaign ownership is tracked using organizer_id.
+- Campaigns use end_date, not deadline.
+- Campaigns do not currently have a category column.
+- Pledges use pending, confirmed, and cancelled statuses.
+- Pledge amounts and campaign goals use Numeric(12, 2).
+- The current pledge model uses confirmed_at, not paid_at.

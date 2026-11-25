@@ -1,10 +1,10 @@
 # Harambee Hub - Backend API
 
-REST API for Harambee Hub, a fundraising platform that replaces WhatsApp contribution lists. Organizers create campaigns, contributors pledge amounts, and the platform tracks who has actually paid. Roles: **organizer**, **contributor**, **admin**.
+REST API for Harambee Hub, a fundraising platform that replaces WhatsApp contribution lists. Organizers create campaigns, contributors pledge amounts, and the platform tracks who has actually paid. Roles: **organizer** and **contributor**.
 
 Built with Flask, SQLAlchemy, Flask-Migrate, Flask-JWT-Extended and Marshmallow, with SendGrid for email and Cloudinary for images. The React frontend lives in a separate repository and talks to this API over HTTP/JSON.
 
-Last updated: 15 Nov 2026. Update this file in the same PR as any change that affects setup, structure, endpoints or ownership.
+Last updated: 26 Nov 2026. Update this file in the same PR as any change that affects setup, structure, endpoints or ownership.
 
 ---
 
@@ -94,15 +94,15 @@ Merged into `develop` (files and migrations are present):
 - Test setup, login schema, decorators and CI (M1)
 
 Still to do (tick them off as they land, and add owners):
-- [ ] Docs PR merged (database diagram, API spec, deployment guide)
-- [ ] Docs match the real code: statuses, field names and endpoint paths for campaigns and pledges
-- [ ] Login blocks unverified emails (returns `403` until `email_verified` is true)
-- [ ] Resend-verification route, for failed emails and expired links
-- [ ] `seed.py` creates an admin account and sample data
-- [ ] Backend coverage at 60% or more (`pytest --cov=app`)
-- [ ] Deployment: `gunicorn` and `psycopg2-binary` in `requirements.txt`, health route, CORS for the frontend address
-- [ ] Frontend repository connected to this API
-- [ ] Final README pass: team names, links, screenshots
+- [x] Database diagram updated to match the current models
+- [ ] API specification reviewed and updated to match implemented endpoints
+- [ ] Deployment guide and production deployment verified
+- [x] Login blocks unverified emails (returns `403` until `email_verified` is true)
+- [ ] Resend-verification route for failed emails and expired links
+- [x] `seed.py` creates an organizer, contributors, sample campaigns and sample pledges
+- [ ] Confirm backend coverage meets the team's 60% target (`pytest --cov=app`)
+- [ ] Confirm frontend integration and production deployment
+- [ ] Final README review: team names, repository links and screenshots
 
 ---
 
@@ -229,7 +229,7 @@ flask --app run db heads                              # must print exactly ONE h
 
 JWT (JSON Web Token) is a signed token the server gives you at login. The client sends it with every protected request, so the server knows who is calling without asking for the password again. We use Flask-JWT-Extended, already set up in `extensions.py` and `create_app()`.
 
-- **Using it on a route:** use `@roles_required("organizer")` from `app/utils/decorators.py`. It checks the token and the role together, and it replaces `@jwt_required()`. Several roles: `@roles_required("organizer", "admin")`. `401` means not logged in (missing, invalid or expired token), `403` means the role is not allowed.
+- **Using it on a route:** use `@roles_required("organizer")` from `app/utils/decorators.py`. It checks the token and role together. The backend has two roles: `organizer` and `contributor`. `401` means the request is not authenticated; `403` means the user is not allowed to perform the action.
 - **Reading the user:** `get_jwt_identity()` returns the user id as a string, and `get_jwt()["role"]` returns the role.
 - **The token carries the role:** login creates it with `create_access_token(identity=str(user.id), additional_claims={"role": user.role})`. If the claim is missing, every role-protected route returns `403`.
 - **Calling a protected route:** send the header `Authorization: Bearer <token>`.
@@ -238,7 +238,7 @@ JWT (JSON Web Token) is a signed token the server gives you at login. The client
 ### Registration and email verification (2-step signup)
 1. `POST /api/auth/register` creates the user with `email_verified = false`, emails a signed, time-limited verification link, and returns a message (not a login token). Only `organizer` and `contributor` can self-register.
 2. The user opens the link, which calls `GET /api/auth/verify-email/<token>` and sets `email_verified = true`. Expired or invalid links return `400`.
-3. Admins are never created through registration. They are created in `seed.py`.
+3. The backend has no separate `admin` role. Platform-management routes use the `organizer` role.
 
 If sending the email fails, registration still succeeds and the response says `email_sent: false`, so a resend route is needed (see section 3).
 
@@ -271,17 +271,45 @@ The full machine-readable list is `docs/openapi.yaml` (paste it into https://edi
 **Pledges** (M4)
 | Method | Path | Access |
 |--------|------|--------|
-| GET | `/api/pledges/campaign/<campaign_id>` | Public, paginated (anonymous pledges hide the contributor) |
+| GET | `/api/pledges/campaign/<campaign_id>` | Public, paginated |
 | POST | `/api/pledges/campaign/<campaign_id>` | Contributor |
 | GET | `/api/pledges/mine` | Logged in, paginated |
-| GET | `/api/pledges/<id>` | The contributor, the campaign's organizer, or an admin |
+| GET | `/api/pledges/<id>` | The contributor who made it, or an organizer |
 | PATCH | `/api/pledges/<id>` | The contributor (pending pledges only) |
-| DELETE | `/api/pledges/<id>` | The contributor or an admin (cancels a pending pledge) |
-| POST | `/api/pledges/<id>/confirm` | The campaign's organizer or an admin |
-| GET | `/api/pledges/campaign/<campaign_id>/manage` | The campaign's organizer or an admin, paginated |
+| DELETE | `/api/pledges/<id>` | The contributor who made it, or an organizer (cancels a pending pledge) |
+| POST | `/api/pledges/<id>/confirm` | Organizer (confirms a pending pledge) |
+| GET | `/api/pledges/campaign/<campaign_id>/manage` | Organizer, paginated |
 | POST | `/api/pledges/<id>/remind` | The campaign's organizer |
 
-**Campaigns** (M3) and **Admin** (M5): owners, add your final endpoints here in your next PR, using the same table format. Copy them from `flask --app run routes`.
+**Campaigns**
+
+| Method | Path | Access |
+|--------|------|--------|
+| GET | `/api/campaigns/` | Public, paginated; supports `search`, `status` and `sort` |
+| POST | `/api/campaigns/` | Organizer |
+| GET | `/api/campaigns/<campaign_id>` | Public |
+| PATCH | `/api/campaigns/<campaign_id>` | Owning organizer only |
+| DELETE | `/api/campaigns/<campaign_id>` | Owning organizer only; blocked when pledge history exists |
+
+Campaign list filters:
+- `search`: searches campaign title and description.
+- `status`: filters by status; `completed` maps to the stored `closed` status. `all` disables status filtering.
+- `sort`: `newest` (default), `ending`, `goal-high`, or `goal-low`.
+
+**Platform management**
+
+| Method | Path | Access |
+|--------|------|--------|
+| GET | `/api/admin/dashboard` | Organizer |
+| GET | `/api/admin/users` | Organizer, paginated |
+
+The `/api/admin` URL prefix is retained for platform-management endpoints. It does not represent a separate backend `admin` role.
+
+**Health**
+
+| Method | Path | Access |
+|--------|------|--------|
+| GET | `/api/health` | Public |
 
 ---
 
@@ -306,7 +334,7 @@ pytest tests/test_pledges.py -q                   # one file
 
 ## 11. Docs and deployment
 
-- `docs/database.md`: ER diagram (renders on GitHub) and DBML for dbdiagram.io
+- `docs/database.md`: Mermaid entity relationship diagram and database table descriptions
 - `docs/openapi.yaml`: API specification
 - `docs/deployment.md`: deploying to Render with PostgreSQL, secrets, and the deploy hook used by CI
 - `render.yaml`: Render blueprint
